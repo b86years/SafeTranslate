@@ -1,0 +1,14 @@
+{
+  "extensionName": {
+    "message": "SafeTranslate — 安全翻譯",
+    "description": "擴充功能顯示名稱"
+  },
+  "extensionDescription": {
+    "message": "防止 Chrome 翻譯功能導致 React / Next.js 網站崩潰。修補 DOM 方法以安全處理翻譯引起的節點異動。",
+    "description": "Chrome 線上應用程式商店中顯示的描述"
+  },
+  "contextMenuTranslate": {
+    "message": "安全翻譯選取文字",
+    "description": "右鍵選單項目標籤"
+  }
+}

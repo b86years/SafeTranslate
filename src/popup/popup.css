@@ -1,0 +1,217 @@
+/* ──────────────────────────────────────────────
+   SafeTranslate — Popup Styles
+   ────────────────────────────────────────────── */
+
+:root {
+  --primary: #4F46E5;
+  --primary-light: #818CF8;
+  --success: #10B981;
+  --warning: #F59E0B;
+  --danger: #EF4444;
+  --bg: #FFFFFF;
+  --bg-alt: #F9FAFB;
+  --text: #111827;
+  --text-muted: #6B7280;
+  --border: #E5E7EB;
+  --radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1F2937;
+    --bg-alt: #374151;
+    --text: #F9FAFB;
+    --text-muted: #9CA3AF;
+    --border: #4B5563;
+  }
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  width: 320px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.container { padding: 16px; }
+
+/* ── Header ── */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logo-icon { font-size: 20px; }
+
+.logo h1 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* ── Toggle ── */
+
+.toggle {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  cursor: pointer;
+}
+
+.toggle input { opacity: 0; width: 0; height: 0; }
+
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--border);
+  border-radius: 22px;
+  transition: background 0.25s;
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  bottom: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.25s;
+}
+
+.toggle input:checked + .toggle-slider { background: var(--primary); }
+.toggle input:checked + .toggle-slider::before { transform: translateX(18px); }
+
+/* ── Status card ── */
+
+.status-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-alt);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+
+.status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-indicator.idle       { background: var(--text-muted); }
+.status-indicator.ready      { background: var(--primary); }
+.status-indicator.active     { background: var(--warning);  animation: pulse 2s infinite; }
+.status-indicator.protecting { background: var(--success);  animation: pulse 2s infinite; }
+.status-indicator.error      { background: var(--danger); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+.status-text { display: flex; flex-direction: column; }
+
+#statusLabel { font-weight: 600; font-size: 14px; }
+
+.status-detail {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ── Section ── */
+
+.section { margin-bottom: 16px; }
+
+.section h2 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── Radio group ── */
+
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-alt);
+  border-radius: var(--radius);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.radio-option:hover { border-color: var(--primary-light); }
+
+.radio-option input[type="radio"] {
+  margin-top: 2px;
+  accent-color: var(--primary);
+}
+
+.radio-content { display: flex; flex-direction: column; }
+
+.radio-label { font-size: 13px; font-weight: 500; }
+
+.radio-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ── Stats ── */
+
+.stats {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+  background: var(--bg-alt);
+  border-radius: var(--radius);
+}
+
+.stat { display: flex; flex-direction: column; align-items: center; }
+
+.stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.stat-label { font-size: 11px; color: var(--text-muted); }
+
+/* ── Footer ── */
+
+.footer {
+  display: flex;
+  justify-content: center;
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+}

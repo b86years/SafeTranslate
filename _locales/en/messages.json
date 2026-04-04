@@ -1,0 +1,14 @@
+{
+  "extensionName": {
+    "message": "SafeTranslate",
+    "description": "Extension display name"
+  },
+  "extensionDescription": {
+    "message": "Prevent Chrome translation from crashing React / Next.js websites. Patches DOM methods to safely handle translation-induced node mutations.",
+    "description": "Extension description shown in Chrome Web Store"
+  },
+  "contextMenuTranslate": {
+    "message": "Translate selection safely",
+    "description": "Context menu item label"
+  }
+}
