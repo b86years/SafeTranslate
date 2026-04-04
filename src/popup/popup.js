@@ -7,7 +7,9 @@
   'use strict';
 
   var ST = globalThis.__SAFE_TRANSLATE__;
+  var siteConfig = globalThis.__SAFE_TRANSLATE_SITE_CONFIG__;
   if (!ST) return;
+  if (!siteConfig) return;
 
   // ── DOM refs ──
 
@@ -17,15 +19,36 @@
   var $detail = document.getElementById('statusDetail');
   var $count = document.getElementById('protectionCount');
   var $radios = document.querySelectorAll('input[name="mode"]');
+  var $siteHost = document.getElementById('siteHost');
+  var $siteModeSelect = document.getElementById('siteModeSelect');
+  var $diagVersion = document.getElementById('diagVersion');
+  var $diagReason = document.getElementById('diagReason');
+  var $diagRemove = document.getElementById('diagRemove');
+  var $diagInsert = document.getElementById('diagInsert');
+  var $diagReplace = document.getElementById('diagReplace');
+  var $diagLastError = document.getElementById('diagLastError');
+  var activeTab = null;
+  var currentSettings = null;
 
   // ── Load current-tab status ──
 
   chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
     if (!tabs[0]) return;
-    chrome.runtime.sendMessage(
-      { type: ST.MESSAGES.GET_TAB_STATUS, tabId: tabs[0].id },
+    activeTab = tabs[0];
+    $siteHost.textContent = siteConfig.normalizeHost(activeTab.url) || '無法辨識';
+    chrome.tabs.sendMessage(
+      activeTab.id,
+      { type: ST.MESSAGES.GET_PAGE_STATE },
       function (state) {
-        if (state) renderStatus(state);
+        if (chrome.runtime.lastError) {
+          setStatus('idle', '等待頁面', '重新整理頁面後可取得即時診斷');
+          return;
+        }
+
+        if (state) {
+          renderStatus(state);
+          renderDiagnostics(state);
+        }
       }
     );
   });
@@ -36,8 +59,10 @@
     { type: ST.MESSAGES.GET_SETTINGS },
     function (s) {
       if (!s) return;
+      currentSettings = s;
       $toggle.checked = s.globalEnabled;
       selectMode(s.protectionMode);
+      renderSiteMode();
     }
   );
 
@@ -59,13 +84,42 @@
     });
   }
 
+  $siteModeSelect.addEventListener('change', function () {
+    if (!activeTab || !currentSettings) return;
+
+    var siteKey = siteConfig.normalizeHost(activeTab.url);
+    if (!siteKey) return;
+
+    var overrides = Object.assign({}, currentSettings.siteOverrides || {});
+    if (this.value === ST.SITE_OVERRIDES.INHERIT) {
+      delete overrides[siteKey];
+    } else {
+      overrides[siteKey] = this.value;
+    }
+
+    persist({ siteOverrides: overrides });
+  });
+
   // ── Helpers ──
 
   function persist(partial) {
+    if (partial.siteOverrides && currentSettings) {
+      currentSettings.siteOverrides = partial.siteOverrides;
+    }
+    if (partial.protectionMode && currentSettings) {
+      currentSettings.protectionMode = partial.protectionMode;
+    }
+    if (partial.globalEnabled !== undefined && currentSettings) {
+      currentSettings.globalEnabled = partial.globalEnabled;
+    }
+
     chrome.runtime.sendMessage({
       type: ST.MESSAGES.UPDATE_SETTINGS,
       payload: partial,
+      tabId: activeTab ? activeTab.id : null,
     });
+
+    renderSiteMode();
   }
 
   function selectMode(value) {
@@ -75,7 +129,9 @@
   }
 
   function renderStatus(state) {
-    if (state.translationDetected && state.isReactSite) {
+    if (!state.protectionActive) {
+      setStatus('error', '未掛載', '頁面尚未回報核心保護狀態');
+    } else if (state.translationDetected && state.isReactSite) {
       setStatus('protecting', '保護中', '已偵測到 React 應用，翻譯保護已啟用');
     } else if (state.translationDetected) {
       setStatus('active', '翻譯中', '已偵測到 Chrome 翻譯，保護已就緒');
@@ -90,5 +146,26 @@
     $indicator.className = 'status-indicator ' + cls;
     $label.textContent = label;
     $detail.textContent = detail;
+  }
+
+  function renderDiagnostics(state) {
+    $diagVersion.textContent = state.protectionVersion || ST.VERSION;
+    $diagReason.textContent = state.detectedReason || '-';
+    $diagRemove.textContent = String(state.handledRemoveChild || 0);
+    $diagInsert.textContent = String(state.handledInsertBefore || 0);
+    $diagReplace.textContent = String(state.handledReplaceChild || 0);
+    $diagLastError.textContent = state.lastHandledError || '-';
+  }
+
+  function renderSiteMode() {
+    if (!activeTab || !currentSettings) return;
+    var resolved = siteConfig.resolveSiteSettings(activeTab.url, {
+      globalEnabled: currentSettings.globalEnabled,
+      protectionMode: currentSettings.protectionMode,
+      targetLanguage: currentSettings.targetLanguage,
+      siteOverrides: currentSettings.siteOverrides,
+    });
+
+    $siteModeSelect.value = resolved.siteMode;
   }
 })();

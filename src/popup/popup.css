@@ -147,6 +147,74 @@ body {
   letter-spacing: 0.5px;
 }
 
+.panel {
+  padding: 12px;
+  background: var(--bg-alt);
+  border-radius: var(--radius);
+}
+
+.row-text {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.panel-label,
+.field-label,
+.diag-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.panel-value,
+.diag-value {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.site-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.select-field {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.field-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.diag-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.diag-item-full {
+  grid-column: 1 / -1;
+}
+
+.diag-value-wrap {
+  word-break: break-word;
+  font-weight: 500;
+}
+
 /* ── Radio group ── */
 
 .radio-group {

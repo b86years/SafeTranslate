@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeTranslate Test Pages</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 32px;
+      font: 16px/1.6 "Segoe UI", system-ui, sans-serif;
+      background: #f4f7fb;
+      color: #172033;
+    }
+
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 16px;
+      padding: 28px;
+      box-shadow: 0 16px 40px rgba(17, 24, 39, 0.08);
+    }
+
+    h1 { margin-top: 0; }
+
+    ul {
+      padding-left: 20px;
+    }
+
+    a {
+      color: #3b44d1;
+      font-weight: 600;
+    }
+
+    .note {
+      margin-top: 20px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: #eef2ff;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>SafeTranslate Manual Test Pages</h1>
+    <p>先在 Chrome 擴充功能頁開啟「允許存取檔案網址」，再載入下列測試頁：</p>
+    <ul>
+      <li><a href="./translate-crash-simulator.html">翻譯崩潰模擬頁</a></li>
+      <li><a href="./diagnostics-inspector.html">診斷狀態檢視頁</a></li>
+    </ul>
+    <div class="note">
+      預期結果：當頁面模擬翻譯把原始 TextNode 換掉後，SafeTranslate 應避免 DOMException，並在頁面根節點留下診斷 attributes。
+    </div>
+  </main>
+</body>
+</html>

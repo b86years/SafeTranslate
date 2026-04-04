@@ -9,7 +9,9 @@
   'use strict';
 
   var ST = globalThis.__SAFE_TRANSLATE__;
+  var siteConfig = globalThis.__SAFE_TRANSLATE_SITE_CONFIG__;
   if (!ST) return;
+  if (!siteConfig) return;
 
   // ──────────────────────────────────────────────
   // Page state
@@ -19,7 +21,43 @@
     isReactSite: false,
     translationDetected: false,
     protectionActive: false,
+    detectedReason: '',
+    handledRemoveChild: 0,
+    handledInsertBefore: 0,
+    handledReplaceChild: 0,
+    lastHandledError: '',
+    protectionVersion: '',
+    siteKey: siteConfig.normalizeHost(location.href),
   };
+  var hasReportedTranslation = false;
+
+  function readRootState() {
+    var root = document.documentElement;
+    if (!root) return;
+
+    state.protectionActive =
+      root.getAttribute(ST.DOM_ATTRS.PROTECTED) === '1';
+    state.translationDetected =
+      root.getAttribute(ST.DOM_ATTRS.TRANSLATION_DETECTED) === '1';
+    state.detectedReason =
+      root.getAttribute(ST.DOM_ATTRS.DETECTED_REASON) || state.detectedReason;
+    state.protectionVersion =
+      root.getAttribute(ST.DOM_ATTRS.VERSION) || state.protectionVersion;
+    state.handledRemoveChild = parseInt(
+      root.getAttribute(ST.DOM_ATTRS.REMOVE_FALLBACKS) || '0',
+      10
+    );
+    state.handledInsertBefore = parseInt(
+      root.getAttribute(ST.DOM_ATTRS.INSERT_FALLBACKS) || '0',
+      10
+    );
+    state.handledReplaceChild = parseInt(
+      root.getAttribute(ST.DOM_ATTRS.REPLACE_FALLBACKS) || '0',
+      10
+    );
+    state.lastHandledError =
+      root.getAttribute(ST.DOM_ATTRS.LAST_ERROR) || state.lastHandledError;
+  }
 
   // ──────────────────────────────────────────────
   // React / Next.js Detection
@@ -58,17 +96,30 @@
   // MAIN-world event listeners
   // ──────────────────────────────────────────────
 
-  document.addEventListener(ST.EVENTS.PROTECTION_ACTIVE, function () {
-    state.protectionActive = true;
-    syncBadge();
-  });
-
-  document.addEventListener(ST.EVENTS.TRANSLATION_DETECTED, function () {
-    state.translationDetected = true;
+  function syncFromDomEvent(event) {
+    readRootState();
+    if (event && event.detail) {
+      state.detectedReason = event.detail.detectedReason || state.detectedReason;
+      state.protectionVersion =
+        event.detail.version || state.protectionVersion;
+    }
     state.isReactSite = state.isReactSite || detectReact();
     syncBadge();
-    safeSend({ type: 'translationDetected', payload: { url: location.href } });
-  });
+
+    if (state.translationDetected && !hasReportedTranslation) {
+      hasReportedTranslation = true;
+      safeSend({
+        type: 'translationDetected',
+        payload: {
+          url: location.href,
+          reason: state.detectedReason,
+        },
+      });
+    }
+  }
+
+  document.addEventListener(ST.EVENTS.PROTECTION_ACTIVE, syncFromDomEvent);
+  document.addEventListener(ST.EVENTS.TRANSLATION_DETECTED, syncFromDomEvent);
 
   // ──────────────────────────────────────────────
   // Badge sync (content → background)
@@ -89,6 +140,13 @@
         status: deriveBadgeStatus(),
         isReactSite: state.isReactSite,
         translationDetected: state.translationDetected,
+        detectedReason: state.detectedReason,
+        handledRemoveChild: state.handledRemoveChild,
+        handledInsertBefore: state.handledInsertBefore,
+        handledReplaceChild: state.handledReplaceChild,
+        lastHandledError: state.lastHandledError,
+        protectionVersion: state.protectionVersion,
+        siteKey: state.siteKey,
       },
     });
   }
@@ -205,12 +263,34 @@
   });
 
   // Receive messages from background (context menu results, etc.)
-  chrome.runtime.onMessage.addListener(function (msg) {
+  chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+    if (msg.type === ST.MESSAGES.GET_PAGE_STATE) {
+      readRootState();
+      sendResponse({
+        isReactSite: state.isReactSite,
+        translationDetected: state.translationDetected,
+        protectionActive: state.protectionActive,
+        detectedReason: state.detectedReason,
+        handledRemoveChild: state.handledRemoveChild,
+        handledInsertBefore: state.handledInsertBefore,
+        handledReplaceChild: state.handledReplaceChild,
+        lastHandledError: state.lastHandledError,
+        protectionVersion: state.protectionVersion,
+        siteKey: state.siteKey,
+        url: location.href,
+      });
+      return true;
+    }
+
     if (msg.type === 'showTranslation') {
       showTooltip(msg.text, msg.x || 100, msg.y || 100);
     }
     if (msg.type === 'hideTranslation') {
       hideTooltip();
+    }
+    if (msg.type === ST.MESSAGES.SETTINGS_UPDATED) {
+      readRootState();
+      syncBadge();
     }
   });
 
@@ -218,6 +298,11 @@
   // Initialization
   // ──────────────────────────────────────────────
 
+  readRootState();
   state.isReactSite = detectReact();
-  syncBadge();
+  if (state.translationDetected || state.protectionActive) {
+    syncFromDomEvent();
+  } else {
+    syncBadge();
+  }
 })();

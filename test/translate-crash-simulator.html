@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeTranslate Crash Simulator</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+      font: 16px/1.6 "Segoe UI", system-ui, sans-serif;
+      background: linear-gradient(180deg, #f8fafc, #e2e8f0);
+      color: #0f172a;
+    }
+
+    main {
+      max-width: 880px;
+      margin: 0 auto;
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(6px);
+      border-radius: 18px;
+      padding: 28px;
+      box-shadow: 0 20px 50px rgba(15, 23, 42, 0.12);
+    }
+
+    .sandbox {
+      padding: 18px;
+      margin: 20px 0;
+      border-radius: 14px;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 16px 0 20px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 16px;
+      background: #334155;
+      color: #fff;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    button.primary {
+      background: #3b44d1;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      padding: 14px;
+      border-radius: 12px;
+      background: #0f172a;
+      color: #dbeafe;
+      min-height: 140px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>翻譯崩潰模擬頁</h1>
+    <p>這個頁面會先保留原始 TextNode 參考，再模擬 Chrome 翻譯把它換成 font。之後觸發常見 framework DOM 操作。</p>
+
+    <div class="toolbar">
+      <button class="primary" id="simulateTranslation">1. 模擬翻譯替換 TextNode</button>
+      <button id="runRemove">2. 測 removeChild</button>
+      <button id="runInsert">3. 測 insertBefore</button>
+      <button id="runReplace">4. 測 replaceChild</button>
+      <button id="reset">重置頁面</button>
+    </div>
+
+    <div class="sandbox">
+      <div id="target">Original content for translation crash test.</div>
+    </div>
+
+    <pre id="log"></pre>
+  </main>
+
+  <script>
+    (function () {
+      var target = document.getElementById('target');
+      var log = document.getElementById('log');
+      var originalText = target.firstChild;
+
+      function write(message) {
+        log.textContent += message + '\n';
+      }
+
+      function resetLog() {
+        log.textContent = '';
+      }
+
+      function simulateTranslation() {
+        if (target.querySelector('font')) {
+          write('已經模擬過翻譯。');
+          return;
+        }
+
+        var font = document.createElement('font');
+        font.textContent = '翻譯後內容';
+        target.replaceChild(font, originalText);
+        write('已將原始 TextNode 替換成 <font>。');
+      }
+
+      function runCase(name, callback) {
+        try {
+          callback();
+          write(name + '：成功，未拋出例外。');
+        } catch (error) {
+          write(name + '：失敗 -> ' + error.name + ': ' + error.message);
+        }
+      }
+
+      document.getElementById('simulateTranslation').addEventListener('click', function () {
+        resetLog();
+        simulateTranslation();
+      });
+
+      document.getElementById('runRemove').addEventListener('click', function () {
+        runCase('removeChild', function () {
+          target.removeChild(originalText);
+        });
+      });
+
+      document.getElementById('runInsert').addEventListener('click', function () {
+        runCase('insertBefore', function () {
+          target.insertBefore(document.createTextNode('prefix '), originalText);
+        });
+      });
+
+      document.getElementById('runReplace').addEventListener('click', function () {
+        runCase('replaceChild', function () {
+          var replacement = document.createElement('em');
+          replacement.textContent = 'replacement';
+          target.replaceChild(replacement, originalText);
+        });
+      });
+
+      document.getElementById('reset').addEventListener('click', function () {
+        location.reload();
+      });
+    })();
+  </script>
+</body>
+</html>

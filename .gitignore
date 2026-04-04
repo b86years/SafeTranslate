@@ -1,0 +1,25 @@
+# OS files
+Thumbs.db
+.DS_Store
+
+# Editor files
+.idea/
+.vscode/
+
+# Logs and temp files
+*.log
+*.tmp
+*.temp
+
+# Extension build artifacts
+*.zip
+*.crx
+*.pem
+
+# Dependency folders
+node_modules/
+
+# Test output
+coverage/
+playwright-report/
+test-results/

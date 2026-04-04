@@ -16,26 +16,185 @@
   var ST = globalThis.__SAFE_TRANSLATE__;
   if (!ST) return;
 
+  var state = {
+    protected: true,
+    version: ST.VERSION,
+    translationDetected: false,
+    detectedReason: '',
+    handledRemoveChild: 0,
+    handledInsertBefore: 0,
+    handledReplaceChild: 0,
+    lastHandledError: '',
+  };
+
+  function withRoot(callback) {
+    if (document.documentElement) {
+      callback(document.documentElement);
+      return;
+    }
+
+    var observer = new MutationObserver(function () {
+      if (!document.documentElement) return;
+      observer.disconnect();
+      callback(document.documentElement);
+    });
+
+    observer.observe(document, { childList: true, subtree: true });
+  }
+
+  function syncDomState() {
+    withRoot(function (root) {
+      root.setAttribute(ST.DOM_ATTRS.PROTECTED, '1');
+      root.setAttribute(ST.DOM_ATTRS.VERSION, state.version);
+      root.setAttribute(
+        ST.DOM_ATTRS.TRANSLATION_DETECTED,
+        state.translationDetected ? '1' : '0'
+      );
+      root.setAttribute(
+        ST.DOM_ATTRS.DETECTED_REASON,
+        state.detectedReason || ''
+      );
+      root.setAttribute(
+        ST.DOM_ATTRS.REMOVE_FALLBACKS,
+        String(state.handledRemoveChild)
+      );
+      root.setAttribute(
+        ST.DOM_ATTRS.INSERT_FALLBACKS,
+        String(state.handledInsertBefore)
+      );
+      root.setAttribute(
+        ST.DOM_ATTRS.REPLACE_FALLBACKS,
+        String(state.handledReplaceChild)
+      );
+      root.setAttribute(ST.DOM_ATTRS.LAST_ERROR, state.lastHandledError || '');
+    });
+  }
+
+  function isRecoverableDomError(error) {
+    if (!error) return false;
+    var message = String(error.message || '');
+    return (
+      error.name === 'NotFoundError' ||
+      /not a child|removechild|insertbefore|replacechild/i.test(message)
+    );
+  }
+
+  function emitEvent(type) {
+    try {
+      document.dispatchEvent(
+        new CustomEvent(type, {
+          detail: {
+            version: state.version,
+            translationDetected: state.translationDetected,
+            detectedReason: state.detectedReason,
+            handledRemoveChild: state.handledRemoveChild,
+            handledInsertBefore: state.handledInsertBefore,
+            handledReplaceChild: state.handledReplaceChild,
+            lastHandledError: state.lastHandledError,
+          },
+        })
+      );
+    } catch (_) {}
+  }
+
+  function markTranslationDetected(reason) {
+    if (!state.detectedReason && reason) {
+      state.detectedReason = reason;
+    }
+
+    if (state.translationDetected) {
+      syncDomState();
+      return;
+    }
+
+    state.translationDetected = true;
+    syncDomState();
+    emitEvent(ST.EVENTS.TRANSLATION_DETECTED);
+  }
+
+  function recordFallback(kind, error, reason) {
+    if (kind === 'removeChild') state.handledRemoveChild += 1;
+    if (kind === 'insertBefore') state.handledInsertBefore += 1;
+    if (kind === 'replaceChild') state.handledReplaceChild += 1;
+
+    state.lastHandledError = error
+      ? String(error.name || 'Error') + ': ' + String(error.message || '')
+      : reason || state.lastHandledError;
+
+    markTranslationDetected(reason || 'dom-fallback');
+    syncDomState();
+  }
+
+  syncDomState();
+
   // ──────────────────────────────────────────────
   // Tier 1 — DOM Method Patching (crash prevention)
   // ──────────────────────────────────────────────
 
   var _removeChild = Node.prototype.removeChild;
   Node.prototype.removeChild = function (child) {
-    if (!child || child.parentNode !== this) {
-      // Node was already detached by Chrome's translator — return silently
+    if (!child) {
       return child;
     }
-    return _removeChild.call(this, child);
+
+    if (child.parentNode !== this) {
+      // Node was already detached by Chrome's translator — return silently
+      recordFallback('removeChild', null, 'detached-child');
+      return child;
+    }
+
+    try {
+      return _removeChild.call(this, child);
+    } catch (error) {
+      if (!isRecoverableDomError(error)) throw error;
+      recordFallback('removeChild', error, 'remove-child-error');
+      return child;
+    }
   };
 
   var _insertBefore = Node.prototype.insertBefore;
   Node.prototype.insertBefore = function (newNode, refNode) {
     if (refNode && refNode.parentNode !== this) {
       // Reference node relocated by translator — fall back to append
+      recordFallback('insertBefore', null, 'reference-node-moved');
       return _insertBefore.call(this, newNode, null);
     }
-    return _insertBefore.call(this, newNode, refNode);
+
+    try {
+      return _insertBefore.call(this, newNode, refNode);
+    } catch (error) {
+      if (!isRecoverableDomError(error)) throw error;
+      recordFallback('insertBefore', error, 'insert-before-error');
+      try {
+        return _insertBefore.call(this, newNode, null);
+      } catch (_) {
+        return newNode;
+      }
+    }
+  };
+
+  var _replaceChild = Node.prototype.replaceChild;
+  Node.prototype.replaceChild = function (newChild, oldChild) {
+    if (!oldChild || oldChild.parentNode !== this) {
+      recordFallback('replaceChild', null, 'old-child-moved');
+      try {
+        return this.appendChild(newChild);
+      } catch (_) {
+        return newChild;
+      }
+    }
+
+    try {
+      return _replaceChild.call(this, newChild, oldChild);
+    } catch (error) {
+      if (!isRecoverableDomError(error)) throw error;
+      recordFallback('replaceChild', error, 'replace-child-error');
+      try {
+        return this.appendChild(newChild);
+      } catch (_) {
+        return newChild;
+      }
+    }
   };
 
   // ──────────────────────────────────────────────
@@ -44,18 +203,11 @@
 
   var detected = false;
 
-  function onTranslationDetected() {
-    if (detected) return;
-    detected = true;
-    try {
-      document.dispatchEvent(
-        new CustomEvent(ST.EVENTS.TRANSLATION_DETECTED, {
-          detail: { timestamp: Date.now() },
-        })
-      );
-    } catch (_) {
-      /* page may restrict CustomEvent */
+  function onTranslationDetected(reason) {
+    if (!detected) {
+      detected = true;
     }
+    markTranslationDetected(reason || 'mutation-observer');
   }
 
   var observer = new MutationObserver(function (mutations) {
@@ -71,7 +223,7 @@
             node.tagName === 'FONT' &&
             !node.className
           ) {
-            onTranslationDetected();
+            onTranslationDetected('font-node');
             return;
           }
         }
@@ -84,7 +236,7 @@
       ) {
         var cl = document.documentElement.classList;
         if (cl.contains('translated-ltr') || cl.contains('translated-rtl')) {
-          onTranslationDetected();
+          onTranslationDetected('translated-class');
           return;
         }
       }
@@ -106,18 +258,5 @@
     document.addEventListener('DOMContentLoaded', startObserver, { once: true });
   }
 
-  // Notify ISOLATED world that protection is active
-  document.addEventListener(
-    'DOMContentLoaded',
-    function () {
-      try {
-        document.dispatchEvent(
-          new CustomEvent(ST.EVENTS.PROTECTION_ACTIVE, {
-            detail: { version: '1.0.0' },
-          })
-        );
-      } catch (_) {}
-    },
-    { once: true }
-  );
+  emitEvent(ST.EVENTS.PROTECTION_ACTIVE);
 })();

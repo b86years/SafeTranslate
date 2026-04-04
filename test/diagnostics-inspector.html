@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeTranslate Diagnostics Inspector</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      font: 16px/1.6 "Segoe UI", system-ui, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 16px;
+      margin-right: 10px;
+      background: #38bdf8;
+      color: #082f49;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    pre {
+      margin-top: 20px;
+      padding: 18px;
+      border-radius: 14px;
+      background: #111827;
+      color: #d1fae5;
+      min-height: 220px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>診斷狀態檢視頁</h1>
+    <p>按下按鈕後會模擬 Chrome 翻譯常見 class 痕跡，並顯示目前根節點上的 SafeTranslate 診斷 attributes。</p>
+    <button id="simulate">模擬 translated-ltr</button>
+    <button id="readState">讀取 attributes</button>
+    <pre id="output"></pre>
+  </main>
+
+  <script>
+    (function () {
+      var output = document.getElementById('output');
+      var attrs = [
+        'data-safe-translate-protected',
+        'data-safe-translate-version',
+        'data-safe-translate-detected',
+        'data-safe-translate-detected-reason',
+        'data-safe-translate-remove-fallbacks',
+        'data-safe-translate-insert-fallbacks',
+        'data-safe-translate-replace-fallbacks',
+        'data-safe-translate-last-error'
+      ];
+
+      function render() {
+        var root = document.documentElement;
+        output.textContent = attrs.map(function (name) {
+          return name + ': ' + (root.getAttribute(name) || '(empty)');
+        }).join('\n');
+      }
+
+      document.getElementById('simulate').addEventListener('click', function () {
+        document.documentElement.classList.add('translated-ltr');
+        render();
+      });
+
+      document.getElementById('readState').addEventListener('click', render);
+      render();
+    })();
+  </script>
+</body>
+</html>

@@ -7,6 +7,8 @@
   'use strict';
 
   var SAFE_TRANSLATE = Object.freeze({
+    VERSION: '1.1.0',
+
     // Custom DOM events for MAIN ↔ ISOLATED world communication
     EVENTS: Object.freeze({
       TRANSLATION_DETECTED: 'safe-translate:translation-detected',
@@ -15,11 +17,12 @@
 
     // Chrome runtime message types for ContentScript ↔ Background
     MESSAGES: Object.freeze({
-      GET_TAB_STATUS: 'getTabStatus',
       UPDATE_TAB_STATUS: 'updateTabStatus',
       TRANSLATE_TEXT: 'translateText',
       GET_SETTINGS: 'getSettings',
       UPDATE_SETTINGS: 'updateSettings',
+      GET_PAGE_STATE: 'getPageState',
+      SETTINGS_UPDATED: 'settingsUpdated',
     }),
 
     // Chrome storage keys
@@ -28,6 +31,12 @@
       PROTECTION_MODE: 'protectionMode',
       TARGET_LANGUAGE: 'targetLanguage',
       SITE_OVERRIDES: 'siteOverrides',
+    }),
+
+    SITE_OVERRIDES: Object.freeze({
+      INHERIT: 'inherit',
+      PATCH_ONLY: 'patchOnly',
+      BLOCK_AND_TOOLTIP: 'blockAndTooltip',
     }),
 
     // Protection modes
@@ -41,6 +50,18 @@
       GLOBAL_ENABLED: true,
       PROTECTION_MODE: 'patchOnly',
       TARGET_LANGUAGE: 'zh-TW',
+      REQUEST_TIMEOUT_MS: 5000,
+    }),
+
+    DOM_ATTRS: Object.freeze({
+      PROTECTED: 'data-safe-translate-protected',
+      VERSION: 'data-safe-translate-version',
+      TRANSLATION_DETECTED: 'data-safe-translate-detected',
+      DETECTED_REASON: 'data-safe-translate-detected-reason',
+      REMOVE_FALLBACKS: 'data-safe-translate-remove-fallbacks',
+      INSERT_FALLBACKS: 'data-safe-translate-insert-fallbacks',
+      REPLACE_FALLBACKS: 'data-safe-translate-replace-fallbacks',
+      LAST_ERROR: 'data-safe-translate-last-error',
     }),
 
     // Badge colors
