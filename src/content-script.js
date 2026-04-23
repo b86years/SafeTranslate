@@ -211,13 +211,63 @@
     syncBadge();
   }
 
-  function getBuiltInStatusLanguages() {
+  async function getBuiltInStatusLanguages() {
+    var targetLanguage = normalizeLanguageTag(currentResolvedSettings.targetLanguage);
     return {
-      sourceLanguage: normalizeLanguageTag(
-        readLanguageHint(document.body || document.documentElement) || ''
-      ),
-      targetLanguage: normalizeLanguageTag(currentResolvedSettings.targetLanguage),
+      sourceLanguage: await inferBuiltInStatusSourceLanguage(targetLanguage),
+      targetLanguage: targetLanguage,
     };
+  }
+
+  async function inferBuiltInStatusSourceLanguage(targetLanguage) {
+    var nodes = collectCandidateTextNodes(8);
+    var detectedNonTarget = '';
+    var detectedAny = '';
+    var hintedNonTarget = '';
+    var hintedAny = '';
+
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      var text = String(node && node.nodeValue ? node.nodeValue : '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (text.length >= 12) {
+        var detected = await detectLanguage(text);
+        if (detected) {
+          if (!detectedAny) {
+            detectedAny = detected;
+          }
+          if (!sameLanguage(detected, targetLanguage) && !detectedNonTarget) {
+            detectedNonTarget = detected;
+          }
+        }
+      }
+
+      var hinted = readLanguageHint(node);
+      if (hinted) {
+        if (!hintedAny) {
+          hintedAny = hinted;
+        }
+        if (!sameLanguage(hinted, targetLanguage) && !hintedNonTarget) {
+          hintedNonTarget = hinted;
+        }
+      }
+    }
+
+    var pageHint = normalizeLanguageTag(
+      readLanguageHint(document.body || document.documentElement) || ''
+    );
+    if (pageHint) {
+      if (!hintedAny) {
+        hintedAny = pageHint;
+      }
+      if (!sameLanguage(pageHint, targetLanguage) && !hintedNonTarget) {
+        hintedNonTarget = pageHint;
+      }
+    }
+
+    return detectedNonTarget || hintedNonTarget || detectedAny || hintedAny || '';
   }
 
   function hasActiveUserGesture() {
@@ -235,7 +285,7 @@
       return;
     }
 
-    var langs = getBuiltInStatusLanguages();
+    var langs = await getBuiltInStatusLanguages();
     if (!langs.targetLanguage) {
       setBuiltInAiStatus('error', '缺少目標語言設定。');
       return;
