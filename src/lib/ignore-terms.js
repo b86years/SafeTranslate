@@ -47,10 +47,11 @@
   function collectIgnoreTermMatches(text, terms) {
     var normalizedTerms = normalizeIgnoreTerms(terms);
     var matches = [];
+    var sourceText = String(text || '');
     var lowerText;
     var occupied = [];
 
-    if (!text || !normalizedTerms.length) {
+    if (!sourceText || !normalizedTerms.length) {
       return matches;
     }
 
@@ -58,7 +59,7 @@
       return right.length - left.length;
     });
 
-    lowerText = String(text).toLocaleLowerCase();
+    lowerText = sourceText.toLocaleLowerCase();
 
     for (var i = 0; i < normalizedTerms.length; i++) {
       var term = normalizedTerms[i];
@@ -74,6 +75,11 @@
 
         endIndex = nextIndex + lowerTerm.length;
 
+        if (!hasRequiredSpacingAroundTerm(sourceText, nextIndex, endIndex)) {
+          fromIndex = nextIndex + lowerTerm.length;
+          continue;
+        }
+
         for (var j = 0; j < occupied.length; j++) {
           if (nextIndex < occupied[j].end && endIndex > occupied[j].start) {
             overlaps = true;
@@ -86,7 +92,7 @@
           matches.push({
             start: nextIndex,
             end: endIndex,
-            value: text.slice(nextIndex, endIndex),
+            value: sourceText.slice(nextIndex, endIndex),
           });
         }
 
@@ -99,6 +105,14 @@
     });
 
     return matches;
+  }
+
+  function hasRequiredSpacingAroundTerm(text, startIndex, endIndex) {
+    if (startIndex <= 0 || endIndex >= text.length) {
+      return false;
+    }
+
+    return /\s/.test(text.charAt(startIndex - 1)) && /\s/.test(text.charAt(endIndex));
   }
 
   function maskTextWithIgnoreTerms(text, terms) {

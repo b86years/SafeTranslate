@@ -65,6 +65,13 @@
   var currentTabActivity = createIdleTabActivity();
   var liveRefreshTimer = 0;
 
+  $ignoreTermsInput.placeholder = [
+    '一行一個詞彙，例如:',
+    'OpenAI',
+    'TypeScript',
+    'SafeTranslate',
+  ].join('\n');
+
   // ── Load current-tab status ──
 
   chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {

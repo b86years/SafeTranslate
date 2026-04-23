@@ -130,9 +130,8 @@
             id="ignoreTermsInput"
             class="text-field textarea-field"
             rows="5"
-            placeholder="一行一個詞彙，例如:\nOpenAI\nTypeScript\nSafeTranslate"
           ></textarea>
-          <p class="field-hint">大小寫不分。頁面上選取文字後按右鍵，也能直接加入不翻譯詞彙；若當前畫面已翻成中文，會優先嘗試反推回原文。</p>
+          <p class="field-hint">大小寫不分，且只有原文前後都至少有一個空白時才會套用，避免切斷其他詞彙。頁面上選取文字後按右鍵，也能直接加入不翻譯詞彙；若當前畫面已翻成中文，會優先嘗試反推回原文。</p>
           <div class="button-row">
             <button type="button" class="secondary-button" id="importSettingsButton">匯入 JSON</button>
             <button type="button" class="secondary-button" id="exportSettingsButton">匯出 JSON</button>
