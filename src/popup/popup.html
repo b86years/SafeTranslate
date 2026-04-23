@@ -74,13 +74,12 @@
           <div class="field-group field-span-2">
             <label class="field-label" for="providerSelect">翻譯引擎</label>
             <select id="providerSelect" class="select-field">
-              <option value="builtIn">Chrome Built-in AI</option>
               <option value="googleTranslate">Google Translate</option>
               <option value="openRouter">OpenRouter</option>
               <option value="openaiCompatible">OpenAI Compatible API</option>
               <option value="ollama">Ollama</option>
             </select>
-            <p class="field-hint" id="providerHint">優先使用本機 Translator API，在支援裝置上可離線運作。</p>
+            <p class="field-hint" id="providerHint">使用 Google 翻譯公開端點，不需要另外填 API Key 或模型。</p>
           </div>
           <div class="field-group field-span-2 provider-field" id="providerBaseGroup">
             <label class="field-label" for="providerBaseUrlInput">Base URL</label>
@@ -109,15 +108,15 @@
             <span class="toggle-slider"></span>
           </label>
         </div>
-        <div class="provider-status" id="builtInStatusCard">
+        <div class="provider-status" id="providerStatusCard">
           <div class="provider-status-head">
             <div>
               <span class="switch-label" id="providerStatusTitle">目前翻譯引擎狀態</span>
-              <p class="field-hint" id="builtInStatusDetail">尚未檢查目前選擇的翻譯引擎。</p>
+              <p class="field-hint" id="providerStatusDetail">尚未檢查目前選擇的翻譯引擎。</p>
             </div>
-            <button type="button" class="secondary-button" id="builtInCheckButton">點擊檢查</button>
+            <button type="button" class="secondary-button" id="providerCheckButton">點擊檢查</button>
           </div>
-          <div class="status-pill idle" id="builtInStatusLabel">點擊檢查</div>
+          <div class="status-pill idle" id="providerStatusLabel">點擊檢查</div>
         </div>
       </div>
     </section>

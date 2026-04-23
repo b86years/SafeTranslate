@@ -56,7 +56,6 @@
   }
 
   function normalizeProvider(value) {
-    if (value === ST.PROVIDERS.BUILT_IN) return value;
     if (value === ST.PROVIDERS.GOOGLE_TRANSLATE) return value;
     if (value === ST.PROVIDERS.OPENROUTER) return value;
     if (value === ST.PROVIDERS.OPENAI_COMPATIBLE) return value;

@@ -34,21 +34,11 @@
   var originalTextByNode = new WeakMap();
   var translatedTargetByNode = new WeakMap();
   var trackedTranslatedNodes = [];
-  var translatorCache = new Map();
-  var languageDetectorPromise = null;
   var autoTranslateTimer = 0;
   var isApplyingAutoTranslation = false;
   var contentObserver = null;
   var AUTO_TRANSLATE_CONCURRENCY = 6;
-  var BUILT_IN_AUTO_TRANSLATE_CONCURRENCY = 3;
   var CANDIDATE_SCAN_LIMIT = 400;
-  var builtInAiStatus = createBuiltInAiStatus(
-    'idle',
-    '點擊檢查',
-    '尚未檢查 Chrome 內建 AI。',
-    ''
-  );
-  var dominantPageLanguageCache = null;
   var translationMetrics = createTranslationMetrics();
 
   function createTranslationMetrics() {
@@ -220,7 +210,6 @@
       previousTranslationPolicy !== currentResolvedSettings.siteTranslation
     ) {
       restoreTranslatedNodes();
-      resetBuiltInAiState();
     }
 
     if (shouldAutoTranslatePage()) {
@@ -312,9 +301,7 @@
   }
 
   function getAutoTranslateConcurrency(provider) {
-    return provider === ST.PROVIDERS.BUILT_IN
-      ? BUILT_IN_AUTO_TRANSLATE_CONCURRENCY
-      : AUTO_TRANSLATE_CONCURRENCY;
+    return AUTO_TRANSLATE_CONCURRENCY;
   }
 
   function collectCandidateTextNodes(limit) {
@@ -412,23 +399,18 @@
     }
 
     var requestStartedAt = Date.now();
-    var result;
-    if (snapshot.provider === ST.PROVIDERS.BUILT_IN) {
-      result = await translateTextWithBuiltIn(text, sourceLanguage, snapshot.targetLanguage);
-    } else {
-      result = await safeSend({
-        type: ST.MESSAGES.TRANSLATE_TEXT,
-        payload: {
-          text: text,
-          sourceLanguage: sourceLanguage,
-          targetLang: snapshot.targetLanguage,
-          provider: snapshot.provider,
-          baseUrl: snapshot.baseUrl,
-          model: snapshot.model,
-          url: location.href,
-        },
-      });
-    }
+    var result = await safeSend({
+      type: ST.MESSAGES.TRANSLATE_TEXT,
+      payload: {
+        text: text,
+        sourceLanguage: sourceLanguage,
+        targetLang: snapshot.targetLanguage,
+        provider: snapshot.provider,
+        baseUrl: snapshot.baseUrl,
+        model: snapshot.model,
+        url: location.href,
+      },
+    });
 
     if (result && result.error) {
       throw new Error(result.message || 'Translation failed');
@@ -463,28 +445,12 @@
   }
 
   async function determineSourceLanguage(node, text, provider) {
-    if (provider !== ST.PROVIDERS.BUILT_IN) {
-      var hinted = readLanguageHint(node);
-      return hinted || 'auto';
-    }
-
-    var pageLanguage = await detectDominantPageLanguage();
-    if (pageLanguage) return pageLanguage;
-
-    var detected = await detectLanguage(text);
-    if (detected) return detected;
-
-    return readLanguageHint(node) || null;
+    var hinted = readLanguageHint(node);
+    return hinted || 'auto';
   }
 
   async function resolveAutoTranslateSourceLanguage(provider) {
-    var hinted = readLanguageHint(document.body || document.documentElement);
-    if (hinted) return hinted;
-
-    var pageLanguage = await detectDominantPageLanguage();
-    if (pageLanguage) return pageLanguage;
-
-    return provider === ST.PROVIDERS.BUILT_IN ? '' : 'auto';
+    return readLanguageHint(document.body || document.documentElement) || 'auto';
   }
 
   function readLanguageHint(node) {
@@ -530,128 +496,6 @@
     return normalizeLanguageTag(sourceLanguage) === normalizeLanguageTag(targetLanguage);
   }
 
-  async function detectLanguage(text) {
-    if (!('LanguageDetector' in self)) return '';
-    if (!text || text.length < 12) return '';
-
-    try {
-      var detector = await getLanguageDetector();
-      if (!detector) return '';
-      var results = await detector.detect(text);
-      if (!results || !results.length) return '';
-      if ((results[0].confidence || 0) < 0.6) return '';
-      return normalizeLanguageTag(results[0].detectedLanguage);
-    } catch (_) {
-      return '';
-    }
-  }
-
-  async function detectDominantPageLanguage() {
-    var sample = gatherPageTextSample();
-    if (!sample) return '';
-
-    if (dominantPageLanguageCache && dominantPageLanguageCache.sample === sample) {
-      return dominantPageLanguageCache.language;
-    }
-
-    var detected = await detectLanguage(sample);
-    dominantPageLanguageCache = {
-      sample: sample,
-      language: detected || '',
-    };
-    return dominantPageLanguageCache.language;
-  }
-
-  function gatherPageTextSample() {
-    var nodes = collectCandidateTextNodes(12);
-    var parts = [];
-    var total = 0;
-
-    for (var i = 0; i < nodes.length; i++) {
-      var value = String(nodes[i].nodeValue || '').replace(/\s+/g, ' ').trim();
-      if (!value) continue;
-      parts.push(value);
-      total += value.length;
-      if (total >= 1200) break;
-    }
-
-    return parts.join(' ').trim();
-  }
-
-  function getLanguageDetector() {
-    if (!('LanguageDetector' in self)) {
-      return Promise.resolve(null);
-    }
-
-    if (!languageDetectorPromise) {
-      languageDetectorPromise = LanguageDetector.availability()
-        .then(function (availability) {
-          if (availability === 'unavailable') return null;
-          return LanguageDetector.create();
-        })
-        .catch(function () {
-          languageDetectorPromise = Promise.resolve(null);
-          return null;
-        });
-    }
-
-    return languageDetectorPromise;
-  }
-
-  function getBuiltInTranslator(sourceLanguage, targetLanguage) {
-    var source = normalizeLanguageTag(sourceLanguage);
-    var target = normalizeLanguageTag(targetLanguage);
-    var key = source + '->' + target;
-
-    if (!translatorCache.has(key)) {
-      translatorCache.set(
-        key,
-        Translator.availability({
-          sourceLanguage: source,
-          targetLanguage: target,
-        })
-          .then(function (availability) {
-            if (availability === 'unavailable') {
-              throw new Error('Chrome 內建 AI 不支援 ' + source + ' 到 ' + target + '。');
-            }
-
-            if (availability === 'downloadable') {
-              throw new Error('Chrome 內建 AI 模型尚未下載完成，請先點擊檢查並依狀態提示完成下載。');
-            }
-
-            if (availability === 'downloading') {
-              throw new Error('Chrome 內建 AI 模型下載中，完成後再試一次。');
-            }
-
-            return Translator.create({
-              sourceLanguage: source,
-              targetLanguage: target,
-            });
-          })
-          .catch(function (error) {
-            translatorCache.delete(key);
-            throw error;
-          })
-      );
-    }
-
-    return translatorCache.get(key);
-  }
-
-  async function translateTextWithBuiltIn(text, sourceLanguage, targetLanguage) {
-    if (!('Translator' in self)) {
-      throw new Error('Chrome built-in Translator API is unavailable');
-    }
-
-    var translator = await getBuiltInTranslator(sourceLanguage, targetLanguage);
-    var translated = await translator.translate(text);
-    if (!translated) {
-      throw new Error('Chrome built-in Translator returned an empty response');
-    }
-
-    return { translated: translated };
-  }
-
   function ensureContentObserver() {
     if (contentObserver || !document.body || window.top !== window) return;
 
@@ -671,116 +515,6 @@
       childList: true,
       subtree: true,
     });
-  }
-
-  function createBuiltInAiStatus(kind, label, detail, sourceLanguage) {
-    return {
-      kind: kind,
-      label: label,
-      detail: detail,
-      sourceLanguage: sourceLanguage || '',
-      targetLanguage: currentResolvedSettings.targetLanguage || ST.DEFAULTS.TARGET_LANGUAGE,
-    };
-  }
-
-  function resetBuiltInAiState() {
-    dominantPageLanguageCache = null;
-    builtInAiStatus = createBuiltInAiStatus(
-      'idle',
-      '點擊檢查',
-      '尚未檢查 Chrome 內建 AI。',
-      ''
-    );
-  }
-
-  async function inspectBuiltInAiStatus() {
-    if (window.top !== window) {
-      builtInAiStatus = createBuiltInAiStatus(
-        'warning',
-        '僅限主頁框',
-        'Chrome 內建 AI 只能在頂層頁面檢查。',
-        ''
-      );
-      return builtInAiStatus;
-    }
-
-    if (!('Translator' in self)) {
-      builtInAiStatus = createBuiltInAiStatus(
-        'error',
-        '不可用',
-        '目前 Chrome 或裝置不支援 Translator API。',
-        ''
-      );
-      return builtInAiStatus;
-    }
-
-    var pageLanguage = await detectDominantPageLanguage();
-    if (!pageLanguage) {
-      pageLanguage = readLanguageHint(document.body || document.documentElement) || '';
-    }
-
-    if (!pageLanguage) {
-      builtInAiStatus = createBuiltInAiStatus(
-        'warning',
-        '無法判定來源語言',
-        '請在頁面載入更多文字後再檢查一次。',
-        ''
-      );
-      return builtInAiStatus;
-    }
-
-    if (sameLanguage(pageLanguage, currentResolvedSettings.targetLanguage)) {
-      builtInAiStatus = createBuiltInAiStatus(
-        'warning',
-        '目前頁面接近目標語言',
-        '來源語言 ' + pageLanguage + ' 與目標語言 ' + currentResolvedSettings.targetLanguage + ' 相同或等價。',
-        pageLanguage
-      );
-      return builtInAiStatus;
-    }
-
-    var availability = await Translator.availability({
-      sourceLanguage: pageLanguage,
-      targetLanguage: normalizeLanguageTag(currentResolvedSettings.targetLanguage),
-    });
-
-    if (availability === 'available') {
-      builtInAiStatus = createBuiltInAiStatus(
-        'available',
-        '可用',
-        'Chrome 內建 AI 可從 ' + pageLanguage + ' 翻譯到 ' + normalizeLanguageTag(currentResolvedSettings.targetLanguage) + '。',
-        pageLanguage
-      );
-      return builtInAiStatus;
-    }
-
-    if (availability === 'downloadable') {
-      builtInAiStatus = createBuiltInAiStatus(
-        'warning',
-        '可下載',
-        '需要先下載模型。依 Chrome 文件，首次建立翻譯工作階段可能需要使用者互動。',
-        pageLanguage
-      );
-      return builtInAiStatus;
-    }
-
-    if (availability === 'downloading') {
-      builtInAiStatus = createBuiltInAiStatus(
-        'warning',
-        '下載中',
-        'Chrome 正在下載內建翻譯模型，完成後再檢查一次。',
-        pageLanguage
-      );
-      return builtInAiStatus;
-    }
-
-    builtInAiStatus = createBuiltInAiStatus(
-      'error',
-      '不可用',
-      'Chrome 內建 AI 不支援 ' + pageLanguage + ' 到 ' + normalizeLanguageTag(currentResolvedSettings.targetLanguage) + '。',
-      pageLanguage
-    );
-    return builtInAiStatus;
   }
 
   // ──────────────────────────────────────────────
@@ -906,7 +640,6 @@
         lastHandledError: state.lastHandledError,
         protectionVersion: state.protectionVersion,
         siteKey: state.siteKey,
-        builtInAiStatus: builtInAiStatus,
         translationMetrics: {
           completedTranslations: translationMetrics.completedTranslations,
           translatedCharCount: translationMetrics.translatedCharCount,
@@ -915,39 +648,6 @@
         },
         url: location.href,
       });
-      return true;
-    }
-
-    if (msg.type === ST.MESSAGES.CHECK_BUILT_IN_AI_STATUS) {
-      inspectBuiltInAiStatus()
-        .then(sendResponse)
-        .catch(function (error) {
-          var sourceLanguage = dominantPageLanguageCache
-            ? dominantPageLanguageCache.language
-            : '';
-          builtInAiStatus = createBuiltInAiStatus(
-            'error',
-            '不可用',
-            error && error.message
-              ? error.message
-              : 'Chrome 內建 AI 檢查失敗。',
-            sourceLanguage
-          );
-          sendResponse(builtInAiStatus);
-        });
-      return true;
-    }
-
-    if (msg.type === ST.MESSAGES.TRANSLATE_VIA_PAGE) {
-      handlePageTranslationRequest(msg.payload)
-        .then(sendResponse)
-        .catch(function (error) {
-          sendResponse({
-            translated: null,
-            error: true,
-            message: error && error.message ? error.message : 'Built-in translation failed',
-          });
-        });
       return true;
     }
 
@@ -963,35 +663,6 @@
       syncBadge();
     }
   });
-
-  async function handlePageTranslationRequest(payload) {
-    var sourceLanguage = payload && payload.sourceLanguage ? payload.sourceLanguage : '';
-    var text = payload && payload.text ? payload.text : '';
-    var targetLanguage =
-      payload && payload.targetLang
-        ? payload.targetLang
-        : currentResolvedSettings.targetLanguage;
-
-    if (!text) {
-      return { translated: null, error: true, message: 'No text to translate' };
-    }
-
-    if (!sourceLanguage || sourceLanguage === 'auto') {
-      sourceLanguage = await detectDominantPageLanguage();
-      if (!sourceLanguage) {
-        sourceLanguage = await detectLanguage(text);
-      }
-      if (!sourceLanguage) {
-        sourceLanguage = readLanguageHint(document.body || document.documentElement);
-      }
-    }
-
-    if (!sourceLanguage) {
-      throw new Error('Unable to detect source language for built-in translation');
-    }
-
-    return await translateTextWithBuiltIn(text, sourceLanguage, targetLanguage);
-  }
 
   // ──────────────────────────────────────────────
   // Initialization

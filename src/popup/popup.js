@@ -35,11 +35,11 @@
   var $providerApiKeyGroup = document.getElementById('providerApiKeyGroup');
   var $providerApiKeyInput = document.getElementById('providerApiKeyInput');
   var $autoTranslateToggle = document.getElementById('autoTranslateToggle');
-  var $builtInStatusCard = document.getElementById('builtInStatusCard');
+  var $providerStatusCard = document.getElementById('providerStatusCard');
   var $providerStatusTitle = document.getElementById('providerStatusTitle');
-  var $builtInStatusLabel = document.getElementById('builtInStatusLabel');
-  var $builtInStatusDetail = document.getElementById('builtInStatusDetail');
-  var $builtInCheckButton = document.getElementById('builtInCheckButton');
+  var $providerStatusLabel = document.getElementById('providerStatusLabel');
+  var $providerStatusDetail = document.getElementById('providerStatusDetail');
+  var $providerCheckButton = document.getElementById('providerCheckButton');
   var $siteHost = document.getElementById('siteHost');
   var $siteModeSelect = document.getElementById('siteModeSelect');
   var $siteTranslationSelect = document.getElementById('siteTranslationSelect');
@@ -149,7 +149,7 @@
     persist({ autoTranslatePage: this.checked });
   });
 
-  $builtInCheckButton.addEventListener('click', function () {
+  $providerCheckButton.addEventListener('click', function () {
     checkSelectedProviderStatus();
   });
 
@@ -489,17 +489,12 @@
     $providerBaseGroup.hidden = !showBaseUrl;
     $providerModelGroup.hidden = !showModel;
     $providerApiKeyGroup.hidden = !showApiKey;
-    $builtInStatusCard.hidden = false;
+    $providerStatusCard.hidden = false;
     $providerModelSelect.hidden = provider !== ST.PROVIDERS.OLLAMA;
     $providerModelInput.hidden = provider === ST.PROVIDERS.OLLAMA;
     $providerStatusTitle.textContent = getProviderStatusTitle(provider);
 
-    if (provider === ST.PROVIDERS.BUILT_IN) {
-      $providerHint.textContent = '優先使用本機 Translator API，在支援裝置上可離線運作。';
-      $providerBaseUrlInput.placeholder = '';
-      $providerModelInput.placeholder = '';
-      $providerModelHint.textContent = 'Chrome 內建 AI 會由瀏覽器自動管理模型。';
-    } else if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
+    if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
       $providerHint.textContent = '使用 Google 翻譯公開端點，不需要另外填 API Key 或模型。';
       $providerBaseUrlInput.placeholder = '';
       $providerModelInput.placeholder = '';
@@ -528,9 +523,6 @@
   }
 
   function getProviderStatusTitle(provider) {
-    if (provider === ST.PROVIDERS.BUILT_IN) {
-      return 'Chrome 內建 AI 狀態';
-    }
     if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
       return 'Google 翻譯狀態';
     }
@@ -652,11 +644,11 @@
       : ST.DEFAULTS.TRANSLATION_PROVIDER;
     var next = status || createIdleProviderStatus(provider);
 
-    $builtInStatusLabel.className = 'status-pill ' + next.kind;
-    $builtInStatusLabel.textContent = next.label;
-    $builtInStatusDetail.textContent = next.detail;
-    $builtInCheckButton.disabled = false;
-    $builtInCheckButton.textContent = '點擊檢查';
+    $providerStatusLabel.className = 'status-pill ' + next.kind;
+    $providerStatusLabel.textContent = next.label;
+    $providerStatusDetail.textContent = next.detail;
+    $providerCheckButton.disabled = false;
+    $providerCheckButton.textContent = '點擊檢查';
   }
 
   function startLiveRefresh() {
@@ -688,12 +680,6 @@
         if (state) {
           renderStatus(state);
           renderDiagnostics(state);
-          if (
-            currentSettings &&
-            currentSettings.translationProvider === ST.PROVIDERS.BUILT_IN
-          ) {
-            renderProviderStatus(state.builtInAiStatus || null);
-          }
         }
       }
     );
@@ -717,14 +703,6 @@
   }
 
   function createIdleProviderStatus(provider) {
-    if (provider === ST.PROVIDERS.BUILT_IN) {
-      return {
-        kind: 'idle',
-        label: '點擊檢查',
-        detail: '尚未檢查目前選擇的 Chrome 內建 AI。',
-      };
-    }
-
     if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
       return {
         kind: 'idle',
@@ -768,16 +746,11 @@
 
     var provider = currentSettings.translationProvider || ST.DEFAULTS.TRANSLATION_PROVIDER;
 
-    $builtInCheckButton.disabled = true;
-    $builtInCheckButton.textContent = '檢查中...';
-    $builtInStatusLabel.className = 'status-pill idle';
-    $builtInStatusLabel.textContent = '檢查中';
-    $builtInStatusDetail.textContent = getCheckingStatusDetail(provider);
-
-    if (provider === ST.PROVIDERS.BUILT_IN) {
-      checkBuiltInProviderStatus();
-      return;
-    }
+    $providerCheckButton.disabled = true;
+    $providerCheckButton.textContent = '檢查中...';
+    $providerStatusLabel.className = 'status-pill idle';
+    $providerStatusLabel.textContent = '檢查中';
+    $providerStatusDetail.textContent = getCheckingStatusDetail(provider);
 
     chrome.runtime.sendMessage(
       {
@@ -803,38 +776,7 @@
     );
   }
 
-  function checkBuiltInProviderStatus() {
-    if (!activeTab) {
-      renderProviderStatus({
-        kind: 'error',
-        label: '無法檢查',
-        detail: '目前沒有可檢查的活動分頁。',
-      });
-      return;
-    }
-
-    chrome.tabs.sendMessage(
-      activeTab.id,
-      { type: ST.MESSAGES.CHECK_BUILT_IN_AI_STATUS },
-      function (response) {
-        if (chrome.runtime.lastError) {
-          renderProviderStatus({
-            kind: 'error',
-            label: '無法檢查',
-            detail: chrome.runtime.lastError.message,
-          });
-          return;
-        }
-
-        renderProviderStatus(response || null);
-      }
-    );
-  }
-
   function getCheckingStatusDetail(provider) {
-    if (provider === ST.PROVIDERS.BUILT_IN) {
-      return '正在檢查目前分頁的 Chrome 內建 AI 可用性。';
-    }
     if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
       return '正在檢查 Google 翻譯公開端點是否可用。';
     }

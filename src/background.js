@@ -520,10 +520,11 @@ async function translate(payload, tabId) {
   );
   var text = payload.text;
   var lang = payload.targetLang || resolved.targetLanguage || ST.DEFAULTS.TARGET_LANGUAGE;
-  var provider =
+  var provider = siteConfig.normalizeProvider(
     payload.provider ||
-    resolved.translationProvider ||
-    ST.DEFAULTS.TRANSLATION_PROVIDER;
+      resolved.translationProvider ||
+      ST.DEFAULTS.TRANSLATION_PROVIDER
+  );
   var providerBaseUrl = getProviderBaseUrl(
     provider,
     payload.baseUrl || resolved.providerBaseUrl || ST.DEFAULTS.PROVIDER_BASE_URL
@@ -553,14 +554,7 @@ async function translate(payload, tabId) {
   var translationTask = (async function () {
     var result;
 
-    if (provider === ST.PROVIDERS.BUILT_IN) {
-      result = await translateViaPage(tabId, {
-        text: text,
-        targetLang: lang,
-        sourceLanguage: sourceLanguage,
-        url: payload.url || '',
-      });
-    } else if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
+    if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
       result = await translateWithGoogleTranslate({
         text: text,
         sourceLanguage: sourceLanguage,
@@ -774,23 +768,6 @@ function sendMessageToTab(tabId, message) {
       resolve(response || null);
     });
   });
-}
-
-async function translateViaPage(tabId, payload) {
-  var response = await sendMessageToTab(tabId, {
-    type: ST.MESSAGES.TRANSLATE_VIA_PAGE,
-    payload: payload,
-  });
-
-  if (!response || response.error) {
-    throw new Error(
-      response && response.message
-        ? response.message
-        : 'Built-in translation is unavailable on this page'
-    );
-  }
-
-  return response;
 }
 
 async function translateWithOpenAICompatible(payload) {
@@ -1055,10 +1032,11 @@ async function listOllamaModels(payload) {
 async function checkProviderStatus(payload) {
   var settingsBundle = await loadSettingsBundle();
   var syncSettings = siteConfig.readSettings(settingsBundle.sync);
-  var provider =
+  var provider = siteConfig.normalizeProvider(
     payload.provider ||
-    syncSettings.translationProvider ||
-    ST.DEFAULTS.TRANSLATION_PROVIDER;
+      syncSettings.translationProvider ||
+      ST.DEFAULTS.TRANSLATION_PROVIDER
+  );
 
   if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
     return await checkGoogleTranslateStatus({
@@ -1096,9 +1074,9 @@ async function checkProviderStatus(payload) {
   }
 
   return {
-    kind: 'warning',
-    label: '請在頁面檢查',
-    detail: 'Chrome 內建 AI 需要在目前分頁中檢查可用性。',
+    kind: 'error',
+    label: '不支援的翻譯引擎',
+    detail: '目前設定的翻譯引擎不受支援。',
   };
 }
 

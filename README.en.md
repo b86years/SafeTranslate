@@ -22,7 +22,7 @@ The project is focused on one goal: provide a stable, observable, and overrideab
 - Detects common translation markers such as `<font>` nodes and the `translated-ltr` class
 - Two protection modes: `patchOnly` and `blockAndTooltip`
 - Per-site override policies
-- Translation providers for Chrome built-in AI, Google Translate, OpenRouter, OpenAI-compatible APIs, and Ollama
+- Translation providers for Google Translate, OpenRouter, OpenAI-compatible APIs, and Ollama
 - Target language selection, automatic page translation, plus per-site always-translate and never-translate policies
 - Built-in diagnostics for detection reasons, fallback counts, and last handled errors
 - Background service worker for tab state, context menus, and translation caching
@@ -46,8 +46,6 @@ SafeTranslate does not modify application code. Instead, it adds a protection an
 5. Select the repository root.
 
 Minimum supported Chrome version: 111.
-
-Chrome built-in Translator and Language Detector features require desktop Chrome 138 or later, plus compatible device resources and downloaded on-device models. If the built-in APIs are unavailable, users can switch to a custom OpenAI-compatible API or Ollama.
 
 ## Usage
 
@@ -81,7 +79,7 @@ You can also translate selected text from the context menu.
   Displays translated selected text without mutating the DOM controlled by React.
 
 - Translation Providers
-  Uses one shared settings model for Chrome built-in AI, Google Translate, OpenRouter, OpenAI-compatible APIs, and Ollama, while dispatching each provider through the execution context it requires.
+  Uses one shared settings model for Google Translate, OpenRouter, OpenAI-compatible APIs, and Ollama, with all translation requests handled through the background service worker.
 
 ## Project Structure
 
@@ -108,12 +106,10 @@ You can also translate selected text from the context menu.
 - `patchOnly` reduces crash risk but cannot guarantee zero side effects on every site
 - `blockAndTooltip` disables Chrome translation, so it is not suitable for users who want full-page translation from Chrome itself
 - Automatic translation rewrites text nodes on the page. It avoids high-risk regions where possible, but highly dynamic frontend apps may still have compatibility risks
-- Chrome built-in AI availability depends on browser version, device capability, and model download state
 
 ## Privacy
 
 - The extension does not actively collect page data
-- Chrome built-in AI translations run on-device
 - Google Translate, OpenRouter, OpenAI-compatible, and Ollama providers send translated text to the corresponding endpoint
 - API keys are stored only on the current device and are not synced across browsers
 - No telemetry or remote event collection is included
