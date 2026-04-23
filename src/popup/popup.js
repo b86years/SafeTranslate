@@ -21,6 +21,7 @@
   var $activityChip = document.getElementById('activityChip');
   var $activityMeta = document.getElementById('activityMeta');
   var $count = document.getElementById('protectionCount');
+  var $throughput = document.getElementById('throughputValue');
   var $radios = document.querySelectorAll('input[name="mode"]');
   var $targetLanguageSelect = document.getElementById('targetLanguageSelect');
   var $providerSelect = document.getElementById('providerSelect');
@@ -229,6 +230,7 @@
 
   function renderStatus(state) {
     currentPageState = state || null;
+    renderTranslationMetrics(currentPageState);
     renderCompositeStatus();
   }
 
@@ -411,6 +413,40 @@
     $diagInsert.textContent = String(state.handledInsertBefore || 0);
     $diagReplace.textContent = String(state.handledReplaceChild || 0);
     $diagLastError.textContent = state.lastHandledError || '-';
+  }
+
+  function renderTranslationMetrics(state) {
+    var metrics = normalizeTranslationMetrics(state && state.translationMetrics);
+    $throughput.textContent = formatThroughput(metrics);
+  }
+
+  function normalizeTranslationMetrics(metrics) {
+    var safe = metrics || {};
+    return {
+      completedTranslations: Number(safe.completedTranslations || 0),
+      translatedCharCount: Number(safe.translatedCharCount || 0),
+      totalDurationMs: Number(safe.totalDurationMs || 0),
+      lastCompletedAt: Number(safe.lastCompletedAt || 0),
+    };
+  }
+
+  function formatThroughput(metrics) {
+    if (!metrics.completedTranslations || metrics.totalDurationMs <= 0) {
+      return '-';
+    }
+
+    var charsPerSecond = (metrics.translatedCharCount * 1000) / metrics.totalDurationMs;
+    if (!isFinite(charsPerSecond) || charsPerSecond <= 0) {
+      return '-';
+    }
+
+    if (charsPerSecond >= 100) {
+      return Math.round(charsPerSecond) + ' 字/秒';
+    }
+    if (charsPerSecond >= 10) {
+      return charsPerSecond.toFixed(1) + ' 字/秒';
+    }
+    return charsPerSecond.toFixed(2) + ' 字/秒';
   }
 
   function renderSiteMode() {
@@ -640,6 +676,7 @@
       function (state) {
         if (chrome.runtime.lastError) {
           currentPageState = null;
+          renderTranslationMetrics(null);
           renderCompositeStatus();
           return;
         }

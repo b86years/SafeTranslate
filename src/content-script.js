@@ -49,6 +49,23 @@
     ''
   );
   var dominantPageLanguageCache = null;
+  var translationMetrics = createTranslationMetrics();
+
+  function createTranslationMetrics() {
+    return {
+      completedTranslations: 0,
+      translatedCharCount: 0,
+      totalDurationMs: 0,
+      lastCompletedAt: 0,
+    };
+  }
+
+  function recordTranslationMetrics(charCount, durationMs) {
+    translationMetrics.completedTranslations += 1;
+    translationMetrics.translatedCharCount += Math.max(0, Number(charCount || 0));
+    translationMetrics.totalDurationMs += Math.max(0, Number(durationMs || 0));
+    translationMetrics.lastCompletedAt = Date.now();
+  }
 
   function readRootState() {
     var root = document.documentElement;
@@ -394,6 +411,7 @@
       return;
     }
 
+    var requestStartedAt = Date.now();
     var result;
     if (snapshot.provider === ST.PROVIDERS.BUILT_IN) {
       result = await translateTextWithBuiltIn(text, sourceLanguage, snapshot.targetLanguage);
@@ -414,6 +432,10 @@
 
     if (result && result.error) {
       throw new Error(result.message || 'Translation failed');
+    }
+
+    if (result && result.translated) {
+      recordTranslationMetrics(text.length, Date.now() - requestStartedAt);
     }
 
     if (!result || !result.translated || result.translated === text) return;
@@ -885,6 +907,12 @@
         protectionVersion: state.protectionVersion,
         siteKey: state.siteKey,
         builtInAiStatus: builtInAiStatus,
+        translationMetrics: {
+          completedTranslations: translationMetrics.completedTranslations,
+          translatedCharCount: translationMetrics.translatedCharCount,
+          totalDurationMs: translationMetrics.totalDurationMs,
+          lastCompletedAt: translationMetrics.lastCompletedAt,
+        },
         url: location.href,
       });
       return true;

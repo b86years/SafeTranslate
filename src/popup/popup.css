@@ -560,6 +560,7 @@ body {
 .stats {
   display: flex;
   justify-content: center;
+  gap: 24px;
   padding: 12px;
   background: var(--bg-alt);
   border-radius: var(--radius);
