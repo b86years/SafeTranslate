@@ -58,13 +58,6 @@
             </select>
             <p class="field-hint" id="providerHint">優先使用本機 Translator API，在支援裝置上可離線運作。</p>
           </div>
-          <div class="field-group field-span-2" id="builtInStatusGroup">
-            <div class="provider-status-row">
-              <span class="field-label">Chrome AI 狀態</span>
-              <button type="button" class="provider-status-chip provider-status-button idle" id="builtInStatusChip">點擊檢查</button>
-            </div>
-            <p class="field-hint" id="builtInStatusDetail">按一下右側按鈕後，才會對目前分頁執行一次 Chrome 內建 AI 狀態檢查。</p>
-          </div>
           <div class="field-group field-span-2 provider-field" id="providerBaseGroup">
             <label class="field-label" for="providerBaseUrlInput">Base URL</label>
             <input id="providerBaseUrlInput" class="text-field" type="url" placeholder="https://api.example.com/v1">
@@ -87,6 +80,16 @@
             <input type="checkbox" id="autoTranslateToggle" checked>
             <span class="toggle-slider"></span>
           </label>
+        </div>
+        <div class="provider-status" id="builtInStatusCard">
+          <div class="provider-status-head">
+            <div>
+              <span class="switch-label">Chrome 內建 AI 狀態</span>
+              <p class="field-hint" id="builtInStatusDetail">尚未檢查 Chrome 內建 AI。</p>
+            </div>
+            <button type="button" class="secondary-button" id="builtInCheckButton">點擊檢查</button>
+          </div>
+          <div class="status-pill idle" id="builtInStatusLabel">點擊檢查</div>
         </div>
       </div>
     </section>

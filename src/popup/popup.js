@@ -22,9 +22,6 @@
   var $targetLanguageSelect = document.getElementById('targetLanguageSelect');
   var $providerSelect = document.getElementById('providerSelect');
   var $providerHint = document.getElementById('providerHint');
-  var $builtInStatusGroup = document.getElementById('builtInStatusGroup');
-  var $builtInStatusChip = document.getElementById('builtInStatusChip');
-  var $builtInStatusDetail = document.getElementById('builtInStatusDetail');
   var $providerBaseGroup = document.getElementById('providerBaseGroup');
   var $providerBaseUrlInput = document.getElementById('providerBaseUrlInput');
   var $providerModelGroup = document.getElementById('providerModelGroup');
@@ -32,6 +29,10 @@
   var $providerApiKeyGroup = document.getElementById('providerApiKeyGroup');
   var $providerApiKeyInput = document.getElementById('providerApiKeyInput');
   var $autoTranslateToggle = document.getElementById('autoTranslateToggle');
+  var $builtInStatusCard = document.getElementById('builtInStatusCard');
+  var $builtInStatusLabel = document.getElementById('builtInStatusLabel');
+  var $builtInStatusDetail = document.getElementById('builtInStatusDetail');
+  var $builtInCheckButton = document.getElementById('builtInCheckButton');
   var $siteHost = document.getElementById('siteHost');
   var $siteModeSelect = document.getElementById('siteModeSelect');
   var $siteTranslationSelect = document.getElementById('siteTranslationSelect');
@@ -44,8 +45,6 @@
   var $footerVersion = document.getElementById('footerVersion');
   var activeTab = null;
   var currentSettings = null;
-  var currentPageState = null;
-  var checkedBuiltInState = null;
 
   // ── Load current-tab status ──
 
@@ -53,7 +52,22 @@
     if (!tabs[0]) return;
     activeTab = tabs[0];
     $siteHost.textContent = siteConfig.normalizeHost(activeTab.url) || '無法辨識';
-    refreshPageState();
+    chrome.tabs.sendMessage(
+      activeTab.id,
+      { type: ST.MESSAGES.GET_PAGE_STATE },
+      function (state) {
+        if (chrome.runtime.lastError) {
+          setStatus('idle', '等待頁面', '重新整理頁面後可取得即時診斷');
+          return;
+        }
+
+        if (state) {
+          renderStatus(state);
+          renderDiagnostics(state);
+          renderBuiltInStatus(state.builtInAiStatus || null);
+        }
+      }
+    );
   });
 
   // ── Load settings ──
@@ -73,6 +87,7 @@
       $autoTranslateToggle.checked = s.autoTranslatePage !== false;
       renderProviderFields();
       renderSiteMode();
+      renderBuiltInStatus(null);
     }
   );
 
@@ -122,6 +137,10 @@
     persist({ autoTranslatePage: this.checked });
   });
 
+  $builtInCheckButton.addEventListener('click', function () {
+    checkBuiltInStatus();
+  });
+
   $siteModeSelect.addEventListener('change', function () {
     if (!activeTab || !currentSettings) return;
 
@@ -142,10 +161,6 @@
     updateSiteOverride(siteKey, {
       translation: this.value,
     });
-  });
-
-  $builtInStatusChip.addEventListener('click', function () {
-    runBuiltInStatusCheck();
   });
 
   // ── Helpers ──
@@ -185,16 +200,14 @@
       tabId: activeTab ? activeTab.id : null,
     });
 
-    if (
-      partial.translationProvider !== undefined ||
-      partial.targetLanguage !== undefined
-    ) {
-      checkedBuiltInState = null;
-    }
-
     renderSiteMode();
     renderProviderFields();
-    refreshPageState();
+    if (
+      partial.targetLanguage !== undefined ||
+      partial.translationProvider !== undefined
+    ) {
+      renderBuiltInStatus(null);
+    }
   }
 
   function selectMode(value) {
@@ -232,31 +245,6 @@
     $diagLastError.textContent = state.lastHandledError || '-';
   }
 
-  function refreshPageState() {
-    if (!activeTab) return;
-
-    chrome.tabs.sendMessage(
-      activeTab.id,
-      { type: ST.MESSAGES.GET_PAGE_STATE },
-      function (state) {
-        if (chrome.runtime.lastError) {
-          currentPageState = null;
-          checkedBuiltInState = null;
-          setStatus('idle', '等待頁面', '重新整理頁面後可取得即時診斷');
-          renderBuiltInStatus(null);
-          return;
-        }
-
-        if (state) {
-          currentPageState = state;
-          renderStatus(state);
-          renderDiagnostics(state);
-          renderBuiltInStatus(checkedBuiltInState);
-        }
-      }
-    );
-  }
-
   function renderSiteMode() {
     if (!activeTab || !currentSettings) return;
     var resolved = siteConfig.resolveSiteSettings(activeTab.url, {
@@ -281,12 +269,11 @@
     var showBaseUrl = provider !== ST.PROVIDERS.BUILT_IN;
     var showModel = provider !== ST.PROVIDERS.BUILT_IN;
     var showApiKey = provider === ST.PROVIDERS.OPENAI_COMPATIBLE;
-    var showBuiltInStatus = provider === ST.PROVIDERS.BUILT_IN;
 
     $providerBaseGroup.hidden = !showBaseUrl;
     $providerModelGroup.hidden = !showModel;
     $providerApiKeyGroup.hidden = !showApiKey;
-    $builtInStatusGroup.hidden = !showBuiltInStatus;
+    $builtInStatusCard.hidden = provider !== ST.PROVIDERS.BUILT_IN;
 
     if (provider === ST.PROVIDERS.BUILT_IN) {
       $providerHint.textContent = '優先使用本機 Translator API，在支援裝置上可離線運作。';
@@ -301,88 +288,54 @@
       $providerBaseUrlInput.placeholder = 'http://127.0.0.1:11434';
       $providerModelInput.placeholder = 'qwen2.5:3b';
     }
-
-    renderBuiltInStatus(checkedBuiltInState);
   }
 
-  function renderBuiltInStatus(state) {
-    if (!currentSettings || currentSettings.translationProvider !== ST.PROVIDERS.BUILT_IN) {
+  function renderBuiltInStatus(status) {
+    var next = status || {
+      kind: 'idle',
+      label: '點擊檢查',
+      detail: '尚未檢查 Chrome 內建 AI。',
+    };
+
+    $builtInStatusLabel.className = 'status-pill ' + next.kind;
+    $builtInStatusLabel.textContent = next.label;
+    $builtInStatusDetail.textContent = next.detail;
+    $builtInCheckButton.disabled = false;
+    $builtInCheckButton.textContent = '點擊檢查';
+  }
+
+  function checkBuiltInStatus() {
+    if (!activeTab || !currentSettings) {
+      renderBuiltInStatus({
+        kind: 'error',
+        label: '無法檢查',
+        detail: '目前沒有可檢查的活動分頁。',
+      });
       return;
     }
 
-    var status = state && state.builtInAiStatus ? state.builtInAiStatus : 'idle';
-    var detail = state && state.builtInAiDetail
-      ? state.builtInAiDetail
-      : '按一下右側按鈕後，才會對目前分頁執行一次 Chrome 內建 AI 狀態檢查。';
-    var visual = mapBuiltInStatus(status);
-
-    $builtInStatusChip.className = 'provider-status-chip ' + visual.tone;
-    $builtInStatusChip.textContent = visual.label;
-    $builtInStatusChip.disabled = status === 'checking';
-    $builtInStatusDetail.textContent = detail;
-  }
-
-  function runBuiltInStatusCheck() {
-    if (!activeTab || !currentSettings) return;
-    if (currentSettings.translationProvider !== ST.PROVIDERS.BUILT_IN) return;
-
-    checkedBuiltInState = {
-      builtInAiStatus: 'checking',
-      builtInAiDetail: '正在向目前分頁查詢 Chrome 內建 AI 狀態。',
-    };
-    renderBuiltInStatus(checkedBuiltInState);
+    $builtInCheckButton.disabled = true;
+    $builtInCheckButton.textContent = '檢查中...';
+    $builtInStatusLabel.className = 'status-pill idle';
+    $builtInStatusLabel.textContent = '檢查中';
+    $builtInStatusDetail.textContent = '正在檢查目前分頁的 Chrome 內建 AI 可用性。';
 
     chrome.tabs.sendMessage(
       activeTab.id,
-      { type: ST.MESSAGES.CHECK_BUILT_IN_STATUS },
-      function (state) {
+      { type: ST.MESSAGES.CHECK_BUILT_IN_AI_STATUS },
+      function (response) {
         if (chrome.runtime.lastError) {
-          checkedBuiltInState = {
-            builtInAiStatus: 'error',
-            builtInAiDetail: '目前分頁無法回報狀態，請重新整理頁面後再試一次。',
-          };
-          renderBuiltInStatus(checkedBuiltInState);
+          renderBuiltInStatus({
+            kind: 'error',
+            label: '無法檢查',
+            detail: chrome.runtime.lastError.message,
+          });
           return;
         }
 
-        if (!state) {
-          checkedBuiltInState = {
-            builtInAiStatus: 'error',
-            builtInAiDetail: '這次檢查沒有收到任何狀態回覆。',
-          };
-          renderBuiltInStatus(checkedBuiltInState);
-          return;
-        }
-
-        currentPageState = state;
-        checkedBuiltInState = state;
-        renderStatus(state);
-        renderDiagnostics(state);
-        renderBuiltInStatus(checkedBuiltInState);
+        renderBuiltInStatus(response || null);
       }
     );
-  }
-
-  function mapBuiltInStatus(status) {
-    if (status === 'ready') {
-      return { tone: 'ready', label: '已就緒' };
-    }
-    if (
-      status === 'checking' ||
-      status === 'waiting-activation' ||
-      status === 'downloadable' ||
-      status === 'downloading' ||
-      status === 'waiting-language'
-    ) {
-      return { tone: 'warn', label: status === 'checking' ? '檢查中' : '待準備' };
-    }
-    if (status === 'inactive') {
-      return { tone: 'idle', label: '未使用' };
-    }
-    if (status === 'unsupported' || status === 'unavailable' || status === 'error') {
-      return { tone: 'error', label: '不可用' };
-    }
-    return { tone: 'idle', label: '點擊檢查' };
   }
 
   function updateSiteOverride(siteKey, patch) {

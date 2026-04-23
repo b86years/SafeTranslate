@@ -27,10 +27,6 @@
     handledReplaceChild: 0,
     lastHandledError: '',
     protectionVersion: '',
-    builtInAiStatus: 'idle',
-    builtInAiDetail: '',
-    builtInAiSourceLanguage: '',
-    builtInAiTargetLanguage: '',
     siteKey: siteConfig.normalizeHost(location.href),
   };
   var hasReportedTranslation = false;
@@ -43,7 +39,13 @@
   var autoTranslateTimer = 0;
   var isApplyingAutoTranslation = false;
   var contentObserver = null;
-  var builtInRetryEventsBound = false;
+  var builtInAiStatus = createBuiltInAiStatus(
+    'idle',
+    '點擊檢查',
+    '尚未檢查 Chrome 內建 AI。',
+    ''
+  );
+  var dominantPageLanguageCache = null;
 
   function readRootState() {
     var root = document.documentElement;
@@ -71,26 +73,6 @@
     );
     state.lastHandledError =
       root.getAttribute(ST.DOM_ATTRS.LAST_ERROR) || state.lastHandledError;
-  }
-
-  function getPageStateSnapshot() {
-    return {
-      isReactSite: state.isReactSite,
-      translationDetected: state.translationDetected,
-      protectionActive: state.protectionActive,
-      detectedReason: state.detectedReason,
-      handledRemoveChild: state.handledRemoveChild,
-      handledInsertBefore: state.handledInsertBefore,
-      handledReplaceChild: state.handledReplaceChild,
-      lastHandledError: state.lastHandledError,
-      protectionVersion: state.protectionVersion,
-      builtInAiStatus: state.builtInAiStatus,
-      builtInAiDetail: state.builtInAiDetail,
-      builtInAiSourceLanguage: state.builtInAiSourceLanguage,
-      builtInAiTargetLanguage: state.builtInAiTargetLanguage,
-      siteKey: state.siteKey,
-      url: location.href,
-    };
   }
 
   // ──────────────────────────────────────────────
@@ -180,10 +162,6 @@
         handledReplaceChild: state.handledReplaceChild,
         lastHandledError: state.lastHandledError,
         protectionVersion: state.protectionVersion,
-        builtInAiStatus: state.builtInAiStatus,
-        builtInAiDetail: state.builtInAiDetail,
-        builtInAiSourceLanguage: state.builtInAiSourceLanguage,
-        builtInAiTargetLanguage: state.builtInAiTargetLanguage,
         siteKey: state.siteKey,
       },
     });
@@ -202,209 +180,6 @@
   }
 
   function noop() {}
-
-  function setBuiltInAiStatus(status, detail, sourceLanguage, targetLanguage) {
-    state.builtInAiStatus = status || 'idle';
-    state.builtInAiDetail = detail || '';
-    state.builtInAiSourceLanguage = sourceLanguage || '';
-    state.builtInAiTargetLanguage = targetLanguage || '';
-    syncBadge();
-  }
-
-  async function getBuiltInStatusLanguages() {
-    var targetLanguage = normalizeLanguageTag(currentResolvedSettings.targetLanguage);
-    return {
-      sourceLanguage: await inferBuiltInStatusSourceLanguage(targetLanguage),
-      targetLanguage: targetLanguage,
-    };
-  }
-
-  async function inferBuiltInStatusSourceLanguage(targetLanguage) {
-    var nodes = collectCandidateTextNodes(8);
-    var detectedNonTarget = '';
-    var detectedAny = '';
-    var hintedNonTarget = '';
-    var hintedAny = '';
-
-    for (var i = 0; i < nodes.length; i++) {
-      var node = nodes[i];
-      var text = String(node && node.nodeValue ? node.nodeValue : '')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      if (text.length >= 12) {
-        var detected = await detectLanguage(text);
-        if (detected) {
-          if (!detectedAny) {
-            detectedAny = detected;
-          }
-          if (!sameLanguage(detected, targetLanguage) && !detectedNonTarget) {
-            detectedNonTarget = detected;
-          }
-        }
-      }
-
-      var hinted = readLanguageHint(node);
-      if (hinted) {
-        if (!hintedAny) {
-          hintedAny = hinted;
-        }
-        if (!sameLanguage(hinted, targetLanguage) && !hintedNonTarget) {
-          hintedNonTarget = hinted;
-        }
-      }
-    }
-
-    var pageHint = normalizeLanguageTag(
-      readLanguageHint(document.body || document.documentElement) || ''
-    );
-    if (pageHint) {
-      if (!hintedAny) {
-        hintedAny = pageHint;
-      }
-      if (!sameLanguage(pageHint, targetLanguage) && !hintedNonTarget) {
-        hintedNonTarget = pageHint;
-      }
-    }
-
-    return detectedNonTarget || hintedNonTarget || detectedAny || hintedAny || '';
-  }
-
-  function hasActiveUserGesture() {
-    return !!(navigator.userActivation && navigator.userActivation.isActive);
-  }
-
-  async function refreshBuiltInAiStatus(options) {
-    if (currentResolvedSettings.translationProvider !== ST.PROVIDERS.BUILT_IN) {
-      setBuiltInAiStatus('inactive', '目前未使用 Chrome 內建 AI。');
-      return;
-    }
-
-    if (!('Translator' in self)) {
-      setBuiltInAiStatus('unsupported', '目前 Chrome 或裝置不支援 Translator API。');
-      return;
-    }
-
-    var langs = await getBuiltInStatusLanguages();
-    if (!langs.targetLanguage) {
-      setBuiltInAiStatus('error', '缺少目標語言設定。');
-      return;
-    }
-
-    if (!langs.sourceLanguage) {
-      setBuiltInAiStatus(
-        'waiting-language',
-        '此頁面沒有明確語言標記，會在實際翻譯時再偵測來源語言。',
-        '',
-        langs.targetLanguage
-      );
-      return;
-    }
-
-    setBuiltInAiStatus(
-      'checking',
-      '正在檢查 Chrome 內建 AI 是否可用。',
-      langs.sourceLanguage,
-      langs.targetLanguage
-    );
-
-    try {
-      var availability = await Translator.availability({
-        sourceLanguage: langs.sourceLanguage,
-        targetLanguage: langs.targetLanguage,
-      });
-
-      if (availability === 'unavailable') {
-        setBuiltInAiStatus(
-          'unavailable',
-          'Chrome 內建 AI 不支援 ' + langs.sourceLanguage + ' 到 ' + langs.targetLanguage + '。',
-          langs.sourceLanguage,
-          langs.targetLanguage
-        );
-        return;
-      }
-
-      if (availability === 'downloading') {
-        setBuiltInAiStatus(
-          'downloading',
-          'Chrome 正在下載翻譯模型，完成後會自動再試。',
-          langs.sourceLanguage,
-          langs.targetLanguage
-        );
-        return;
-      }
-
-      if (availability === 'downloadable' && !hasActiveUserGesture() && !(options && options.tryCreate)) {
-        setBuiltInAiStatus(
-          'waiting-activation',
-          '需要先在頁面點一下或按鍵，Chrome 才能下載並啟用翻譯模型。',
-          langs.sourceLanguage,
-          langs.targetLanguage
-        );
-        return;
-      }
-
-      if ((options && options.tryCreate) || availability === 'available') {
-        try {
-          await getBuiltInTranslator(langs.sourceLanguage, langs.targetLanguage);
-          setBuiltInAiStatus(
-            'ready',
-            'Chrome 內建 AI 已就緒，可將 ' + langs.sourceLanguage + ' 翻到 ' + langs.targetLanguage + '。',
-            langs.sourceLanguage,
-            langs.targetLanguage
-          );
-          return;
-        } catch (error) {
-          setBuiltInAiStatus(
-            'error',
-            error && error.message
-              ? error.message
-              : 'Chrome 內建 AI 建立工作階段失敗。',
-            langs.sourceLanguage,
-            langs.targetLanguage
-          );
-          return;
-        }
-      }
-
-      setBuiltInAiStatus(
-        'downloadable',
-        'Chrome 內建 AI 可下載，互動後會開始準備模型。',
-        langs.sourceLanguage,
-        langs.targetLanguage
-      );
-    } catch (error) {
-      setBuiltInAiStatus(
-        'error',
-        error && error.message ? error.message : 'Chrome 內建 AI 狀態檢查失敗。',
-        langs.sourceLanguage,
-        langs.targetLanguage
-      );
-    }
-  }
-
-  function bindBuiltInRetryEvents() {
-    if (builtInRetryEventsBound) return;
-    builtInRetryEventsBound = true;
-
-    var handler = function () {
-      if (currentResolvedSettings.translationProvider !== ST.PROVIDERS.BUILT_IN) return;
-      if (
-        state.builtInAiStatus !== 'waiting-activation' &&
-        state.builtInAiStatus !== 'downloadable' &&
-        state.builtInAiStatus !== 'downloading'
-      ) {
-        return;
-      }
-
-      void refreshBuiltInAiStatus({ tryCreate: true });
-      void autoTranslatePage();
-    };
-
-    document.addEventListener('mousedown', handler, true);
-    document.addEventListener('keydown', handler, true);
-    document.addEventListener('touchstart', handler, true);
-  }
 
   function loadSettings() {
     chrome.storage.sync.get(null, function (raw) {
@@ -425,17 +200,7 @@
       previousTranslationPolicy !== currentResolvedSettings.siteTranslation
     ) {
       restoreTranslatedNodes();
-      translatorCache = new Map();
-    }
-
-    if (currentResolvedSettings.translationProvider !== ST.PROVIDERS.BUILT_IN) {
-      setBuiltInAiStatus('inactive', '目前未使用 Chrome 內建 AI。');
-    } else if (
-      previousTarget !== currentResolvedSettings.targetLanguage ||
-      previousProvider !== currentResolvedSettings.translationProvider ||
-      previousTranslationPolicy !== currentResolvedSettings.siteTranslation
-    ) {
-      setBuiltInAiStatus('idle', '可從工具列面板手動檢查 Chrome 內建 AI 狀態。');
+      resetBuiltInAiState();
     }
 
     if (shouldAutoTranslatePage()) {
@@ -594,15 +359,18 @@
   }
 
   async function determineSourceLanguage(node, text, provider) {
-    var hinted = readLanguageHint(node);
     if (provider !== ST.PROVIDERS.BUILT_IN) {
+      var hinted = readLanguageHint(node);
       return hinted || 'auto';
     }
 
-    if (hinted) return hinted;
+    var pageLanguage = await detectDominantPageLanguage();
+    if (pageLanguage) return pageLanguage;
 
     var detected = await detectLanguage(text);
-    return detected || null;
+    if (detected) return detected;
+
+    return readLanguageHint(node) || null;
   }
 
   function readLanguageHint(node) {
@@ -664,6 +432,38 @@
     }
   }
 
+  async function detectDominantPageLanguage() {
+    var sample = gatherPageTextSample();
+    if (!sample) return '';
+
+    if (dominantPageLanguageCache && dominantPageLanguageCache.sample === sample) {
+      return dominantPageLanguageCache.language;
+    }
+
+    var detected = await detectLanguage(sample);
+    dominantPageLanguageCache = {
+      sample: sample,
+      language: detected || '',
+    };
+    return dominantPageLanguageCache.language;
+  }
+
+  function gatherPageTextSample() {
+    var nodes = collectCandidateTextNodes(12);
+    var parts = [];
+    var total = 0;
+
+    for (var i = 0; i < nodes.length; i++) {
+      var value = String(nodes[i].nodeValue || '').replace(/\s+/g, ' ').trim();
+      if (!value) continue;
+      parts.push(value);
+      total += value.length;
+      if (total >= 1200) break;
+    }
+
+    return parts.join(' ').trim();
+  }
+
   function getLanguageDetector() {
     if (!('LanguageDetector' in self)) {
       return Promise.resolve(null);
@@ -698,11 +498,15 @@
         })
           .then(function (availability) {
             if (availability === 'unavailable') {
-              throw new Error('Built-in translation does not support ' + source + ' to ' + target);
+              throw new Error('Chrome 內建 AI 不支援 ' + source + ' 到 ' + target + '。');
             }
 
-            if (availability !== 'available' && !hasActiveUserGesture()) {
-              throw new Error('Chrome 內建 AI 需要使用者先與頁面互動，才能下載或啟用翻譯模型。');
+            if (availability === 'downloadable') {
+              throw new Error('Chrome 內建 AI 模型尚未下載完成，請先點擊檢查並依狀態提示完成下載。');
+            }
+
+            if (availability === 'downloading') {
+              throw new Error('Chrome 內建 AI 模型下載中，完成後再試一次。');
             }
 
             return Translator.create({
@@ -722,39 +526,16 @@
 
   async function translateTextWithBuiltIn(text, sourceLanguage, targetLanguage) {
     if (!('Translator' in self)) {
-      setBuiltInAiStatus('unsupported', '目前 Chrome 或裝置不支援 Translator API。');
       throw new Error('Chrome built-in Translator API is unavailable');
     }
 
-    var normalizedSource = normalizeLanguageTag(sourceLanguage);
-    var normalizedTarget = normalizeLanguageTag(targetLanguage);
-
-    try {
-      var translator = await getBuiltInTranslator(normalizedSource, normalizedTarget);
-      var translated = await translator.translate(text);
-      if (!translated) {
-        throw new Error('Chrome built-in Translator returned an empty response');
-      }
-
-      setBuiltInAiStatus(
-        'ready',
-        'Chrome 內建 AI 已就緒，可將 ' + normalizedSource + ' 翻到 ' + normalizedTarget + '。',
-        normalizedSource,
-        normalizedTarget
-      );
-
-      return { translated: translated };
-    } catch (error) {
-      setBuiltInAiStatus(
-        hasActiveUserGesture() ? 'error' : 'waiting-activation',
-        error && error.message
-          ? error.message
-          : 'Chrome 內建 AI 翻譯失敗。',
-        normalizedSource,
-        normalizedTarget
-      );
-      throw error;
+    var translator = await getBuiltInTranslator(sourceLanguage, targetLanguage);
+    var translated = await translator.translate(text);
+    if (!translated) {
+      throw new Error('Chrome built-in Translator returned an empty response');
     }
+
+    return { translated: translated };
   }
 
   function ensureContentObserver() {
@@ -776,6 +557,116 @@
       childList: true,
       subtree: true,
     });
+  }
+
+  function createBuiltInAiStatus(kind, label, detail, sourceLanguage) {
+    return {
+      kind: kind,
+      label: label,
+      detail: detail,
+      sourceLanguage: sourceLanguage || '',
+      targetLanguage: currentResolvedSettings.targetLanguage || ST.DEFAULTS.TARGET_LANGUAGE,
+    };
+  }
+
+  function resetBuiltInAiState() {
+    dominantPageLanguageCache = null;
+    builtInAiStatus = createBuiltInAiStatus(
+      'idle',
+      '點擊檢查',
+      '尚未檢查 Chrome 內建 AI。',
+      ''
+    );
+  }
+
+  async function inspectBuiltInAiStatus() {
+    if (window.top !== window) {
+      builtInAiStatus = createBuiltInAiStatus(
+        'warning',
+        '僅限主頁框',
+        'Chrome 內建 AI 只能在頂層頁面檢查。',
+        ''
+      );
+      return builtInAiStatus;
+    }
+
+    if (!('Translator' in self)) {
+      builtInAiStatus = createBuiltInAiStatus(
+        'error',
+        '不可用',
+        '目前 Chrome 或裝置不支援 Translator API。',
+        ''
+      );
+      return builtInAiStatus;
+    }
+
+    var pageLanguage = await detectDominantPageLanguage();
+    if (!pageLanguage) {
+      pageLanguage = readLanguageHint(document.body || document.documentElement) || '';
+    }
+
+    if (!pageLanguage) {
+      builtInAiStatus = createBuiltInAiStatus(
+        'warning',
+        '無法判定來源語言',
+        '請在頁面載入更多文字後再檢查一次。',
+        ''
+      );
+      return builtInAiStatus;
+    }
+
+    if (sameLanguage(pageLanguage, currentResolvedSettings.targetLanguage)) {
+      builtInAiStatus = createBuiltInAiStatus(
+        'warning',
+        '目前頁面接近目標語言',
+        '來源語言 ' + pageLanguage + ' 與目標語言 ' + currentResolvedSettings.targetLanguage + ' 相同或等價。',
+        pageLanguage
+      );
+      return builtInAiStatus;
+    }
+
+    var availability = await Translator.availability({
+      sourceLanguage: pageLanguage,
+      targetLanguage: normalizeLanguageTag(currentResolvedSettings.targetLanguage),
+    });
+
+    if (availability === 'available') {
+      builtInAiStatus = createBuiltInAiStatus(
+        'available',
+        '可用',
+        'Chrome 內建 AI 可從 ' + pageLanguage + ' 翻譯到 ' + normalizeLanguageTag(currentResolvedSettings.targetLanguage) + '。',
+        pageLanguage
+      );
+      return builtInAiStatus;
+    }
+
+    if (availability === 'downloadable') {
+      builtInAiStatus = createBuiltInAiStatus(
+        'warning',
+        '可下載',
+        '需要先下載模型。依 Chrome 文件，首次建立翻譯工作階段可能需要使用者互動。',
+        pageLanguage
+      );
+      return builtInAiStatus;
+    }
+
+    if (availability === 'downloading') {
+      builtInAiStatus = createBuiltInAiStatus(
+        'warning',
+        '下載中',
+        'Chrome 正在下載內建翻譯模型，完成後再檢查一次。',
+        pageLanguage
+      );
+      return builtInAiStatus;
+    }
+
+    builtInAiStatus = createBuiltInAiStatus(
+      'error',
+      '不可用',
+      'Chrome 內建 AI 不支援 ' + pageLanguage + ' 到 ' + normalizeLanguageTag(currentResolvedSettings.targetLanguage) + '。',
+      pageLanguage
+    );
+    return builtInAiStatus;
   }
 
   // ──────────────────────────────────────────────
@@ -879,19 +770,39 @@
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     if (msg.type === ST.MESSAGES.GET_PAGE_STATE) {
       readRootState();
-      sendResponse(getPageStateSnapshot());
+      sendResponse({
+        isReactSite: state.isReactSite,
+        translationDetected: state.translationDetected,
+        protectionActive: state.protectionActive,
+        detectedReason: state.detectedReason,
+        handledRemoveChild: state.handledRemoveChild,
+        handledInsertBefore: state.handledInsertBefore,
+        handledReplaceChild: state.handledReplaceChild,
+        lastHandledError: state.lastHandledError,
+        protectionVersion: state.protectionVersion,
+        siteKey: state.siteKey,
+        builtInAiStatus: builtInAiStatus,
+        url: location.href,
+      });
       return true;
     }
 
-    if (msg.type === ST.MESSAGES.CHECK_BUILT_IN_STATUS) {
-      refreshBuiltInAiStatus({ tryCreate: false })
-        .then(function () {
-          readRootState();
-          sendResponse(getPageStateSnapshot());
-        })
-        .catch(function () {
-          readRootState();
-          sendResponse(getPageStateSnapshot());
+    if (msg.type === ST.MESSAGES.CHECK_BUILT_IN_AI_STATUS) {
+      inspectBuiltInAiStatus()
+        .then(sendResponse)
+        .catch(function (error) {
+          var sourceLanguage = dominantPageLanguageCache
+            ? dominantPageLanguageCache.language
+            : '';
+          builtInAiStatus = createBuiltInAiStatus(
+            'error',
+            '不可用',
+            error && error.message
+              ? error.message
+              : 'Chrome 內建 AI 檢查失敗。',
+            sourceLanguage
+          );
+          sendResponse(builtInAiStatus);
         });
       return true;
     }
@@ -935,9 +846,12 @@
     }
 
     if (!sourceLanguage || sourceLanguage === 'auto') {
-      sourceLanguage = readLanguageHint(document.body ? document.body.firstChild || document.body : null);
+      sourceLanguage = await detectDominantPageLanguage();
       if (!sourceLanguage) {
         sourceLanguage = await detectLanguage(text);
+      }
+      if (!sourceLanguage) {
+        sourceLanguage = readLanguageHint(document.body || document.documentElement);
       }
     }
 
@@ -956,7 +870,6 @@
   state.isReactSite = detectReact();
   loadSettings();
   ensureContentObserver();
-  bindBuiltInRetryEvents();
   if (state.translationDetected || state.protectionActive) {
     syncFromDomEvent();
   } else {

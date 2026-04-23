@@ -236,6 +236,66 @@ body {
   gap: 12px;
 }
 
+.provider-status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.provider-status-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.secondary-button {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.secondary-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.status-pill {
+  align-self: flex-start;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.status-pill.idle {
+  background: rgba(107, 114, 128, 0.12);
+  color: var(--text-muted);
+}
+
+.status-pill.available {
+  background: rgba(16, 185, 129, 0.14);
+  color: var(--success);
+}
+
+.status-pill.warning {
+  background: rgba(245, 158, 11, 0.14);
+  color: var(--warning);
+}
+
+.status-pill.error {
+  background: rgba(239, 68, 68, 0.14);
+  color: var(--danger);
+}
+
 .switch-label {
   display: block;
   font-size: 13px;
@@ -244,66 +304,6 @@ body {
 
 .toggle-compact {
   flex-shrink: 0;
-}
-
-.provider-status-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.provider-status-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.provider-status-button {
-  border: 0;
-  cursor: pointer;
-  transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
-}
-
-.provider-status-button:hover {
-  transform: translateY(-1px);
-}
-
-.provider-status-button:focus-visible {
-  outline: 2px solid var(--primary-light);
-  outline-offset: 2px;
-}
-
-.provider-status-button:disabled {
-  cursor: wait;
-  opacity: 0.75;
-  transform: none;
-}
-
-.provider-status-chip.idle {
-  background: rgba(107, 114, 128, 0.14);
-  color: var(--text-muted);
-}
-
-.provider-status-chip.ready {
-  background: rgba(16, 185, 129, 0.16);
-  color: var(--success);
-}
-
-.provider-status-chip.warn {
-  background: rgba(245, 158, 11, 0.18);
-  color: #B45309;
-}
-
-.provider-status-chip.error {
-  background: rgba(239, 68, 68, 0.16);
-  color: var(--danger);
 }
 
 .provider-field[hidden] {

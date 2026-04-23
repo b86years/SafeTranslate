@@ -25,10 +25,6 @@ function createTabState() {
     handledReplaceChild: 0,
     lastHandledError: '',
     protectionVersion: '',
-    builtInAiStatus: 'idle',
-    builtInAiDetail: '',
-    builtInAiSourceLanguage: '',
-    builtInAiTargetLanguage: '',
     selectionAnchor: null,
     siteKey: '',
   };
