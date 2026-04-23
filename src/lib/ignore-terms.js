@@ -75,7 +75,7 @@
 
         endIndex = nextIndex + lowerTerm.length;
 
-        if (!hasRequiredSpacingAroundTerm(sourceText, nextIndex, endIndex)) {
+        if (!hasRequiredBoundaryAroundTerm(sourceText, nextIndex, endIndex)) {
           fromIndex = nextIndex + lowerTerm.length;
           continue;
         }
@@ -107,12 +107,16 @@
     return matches;
   }
 
-  function hasRequiredSpacingAroundTerm(text, startIndex, endIndex) {
-    if (startIndex <= 0 || endIndex >= text.length) {
-      return false;
-    }
+  function hasRequiredBoundaryAroundTerm(text, startIndex, endIndex) {
+    var previousChar = startIndex > 0 ? text.charAt(startIndex - 1) : '';
+    var nextChar = endIndex < text.length ? text.charAt(endIndex) : '';
 
-    return /\s/.test(text.charAt(startIndex - 1)) && /\s/.test(text.charAt(endIndex));
+    return isTermBoundaryChar(previousChar) && isTermBoundaryChar(nextChar);
+  }
+
+  function isTermBoundaryChar(value) {
+    if (!value) return true;
+    return !/[\p{L}\p{N}_]/u.test(value);
   }
 
   function maskTextWithIgnoreTerms(text, terms) {

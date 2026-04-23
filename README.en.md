@@ -57,7 +57,7 @@ After installation, click the SafeTranslate toolbar icon to open the popup.
 - Choose a target language and translation provider
 - Configure OpenRouter or a custom OpenAI-compatible base URL, model, and API key, configure an Ollama base URL and model, or use Google Translate directly
 - Toggle automatic translation for visible page content
-- Maintain a no-translate term list in the popup, one term per line, with case-insensitive matching
+- Maintain a no-translate term list in the popup, one term per line, with case-insensitive matching; terms only match on token boundaries to avoid hitting substrings inside larger words
 - Settings changes are automatically written to a local JSON snapshot for long-term persistence
 - You can also export or import the same JSON format directly from the popup for backup or migration
 - `patchOnly` is the recommended default
