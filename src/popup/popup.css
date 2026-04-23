@@ -256,12 +256,34 @@ body {
 .provider-status-chip {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 22px;
   padding: 0 8px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+
+.provider-status-button {
+  border: 0;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
+.provider-status-button:hover {
+  transform: translateY(-1px);
+}
+
+.provider-status-button:focus-visible {
+  outline: 2px solid var(--primary-light);
+  outline-offset: 2px;
+}
+
+.provider-status-button:disabled {
+  cursor: wait;
+  opacity: 0.75;
+  transform: none;
 }
 
 .provider-status-chip.idle {

@@ -23,6 +23,7 @@
       GET_SETTINGS: 'getSettings',
       UPDATE_SETTINGS: 'updateSettings',
       GET_PAGE_STATE: 'getPageState',
+      CHECK_BUILT_IN_STATUS: 'checkBuiltInStatus',
       SETTINGS_UPDATED: 'settingsUpdated',
       AUTO_TRANSLATE_PAGE: 'autoTranslatePage',
     }),

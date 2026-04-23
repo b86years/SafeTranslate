@@ -73,6 +73,26 @@
       root.getAttribute(ST.DOM_ATTRS.LAST_ERROR) || state.lastHandledError;
   }
 
+  function getPageStateSnapshot() {
+    return {
+      isReactSite: state.isReactSite,
+      translationDetected: state.translationDetected,
+      protectionActive: state.protectionActive,
+      detectedReason: state.detectedReason,
+      handledRemoveChild: state.handledRemoveChild,
+      handledInsertBefore: state.handledInsertBefore,
+      handledReplaceChild: state.handledReplaceChild,
+      lastHandledError: state.lastHandledError,
+      protectionVersion: state.protectionVersion,
+      builtInAiStatus: state.builtInAiStatus,
+      builtInAiDetail: state.builtInAiDetail,
+      builtInAiSourceLanguage: state.builtInAiSourceLanguage,
+      builtInAiTargetLanguage: state.builtInAiTargetLanguage,
+      siteKey: state.siteKey,
+      url: location.href,
+    };
+  }
+
   // ──────────────────────────────────────────────
   // React / Next.js Detection
   // ──────────────────────────────────────────────
@@ -358,7 +378,15 @@
       translatorCache = new Map();
     }
 
-    void refreshBuiltInAiStatus({ tryCreate: false });
+    if (currentResolvedSettings.translationProvider !== ST.PROVIDERS.BUILT_IN) {
+      setBuiltInAiStatus('inactive', '目前未使用 Chrome 內建 AI。');
+    } else if (
+      previousTarget !== currentResolvedSettings.targetLanguage ||
+      previousProvider !== currentResolvedSettings.translationProvider ||
+      previousTranslationPolicy !== currentResolvedSettings.siteTranslation
+    ) {
+      setBuiltInAiStatus('idle', '可從工具列面板手動檢查 Chrome 內建 AI 狀態。');
+    }
 
     if (shouldAutoTranslatePage()) {
       scheduleAutoTranslate('settings');
@@ -801,23 +829,20 @@
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     if (msg.type === ST.MESSAGES.GET_PAGE_STATE) {
       readRootState();
-      sendResponse({
-        isReactSite: state.isReactSite,
-        translationDetected: state.translationDetected,
-        protectionActive: state.protectionActive,
-        detectedReason: state.detectedReason,
-        handledRemoveChild: state.handledRemoveChild,
-        handledInsertBefore: state.handledInsertBefore,
-        handledReplaceChild: state.handledReplaceChild,
-        lastHandledError: state.lastHandledError,
-        protectionVersion: state.protectionVersion,
-        builtInAiStatus: state.builtInAiStatus,
-        builtInAiDetail: state.builtInAiDetail,
-        builtInAiSourceLanguage: state.builtInAiSourceLanguage,
-        builtInAiTargetLanguage: state.builtInAiTargetLanguage,
-        siteKey: state.siteKey,
-        url: location.href,
-      });
+      sendResponse(getPageStateSnapshot());
+      return true;
+    }
+
+    if (msg.type === ST.MESSAGES.CHECK_BUILT_IN_STATUS) {
+      refreshBuiltInAiStatus({ tryCreate: false })
+        .then(function () {
+          readRootState();
+          sendResponse(getPageStateSnapshot());
+        })
+        .catch(function () {
+          readRootState();
+          sendResponse(getPageStateSnapshot());
+        });
       return true;
     }
 

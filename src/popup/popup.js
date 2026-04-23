@@ -45,7 +45,7 @@
   var activeTab = null;
   var currentSettings = null;
   var currentPageState = null;
-  var pageStatePollId = 0;
+  var checkedBuiltInState = null;
 
   // ── Load current-tab status ──
 
@@ -54,7 +54,6 @@
     activeTab = tabs[0];
     $siteHost.textContent = siteConfig.normalizeHost(activeTab.url) || '無法辨識';
     refreshPageState();
-    startPageStatePolling();
   });
 
   // ── Load settings ──
@@ -84,7 +83,6 @@
   });
 
   $footerVersion.textContent = 'v' + ST.VERSION;
-  window.addEventListener('unload', stopPageStatePolling);
 
   // ── Event bindings ──
 
@@ -146,6 +144,10 @@
     });
   });
 
+  $builtInStatusChip.addEventListener('click', function () {
+    runBuiltInStatusCheck();
+  });
+
   // ── Helpers ──
 
   function persist(partial) {
@@ -182,6 +184,13 @@
       payload: partial,
       tabId: activeTab ? activeTab.id : null,
     });
+
+    if (
+      partial.translationProvider !== undefined ||
+      partial.targetLanguage !== undefined
+    ) {
+      checkedBuiltInState = null;
+    }
 
     renderSiteMode();
     renderProviderFields();
@@ -232,6 +241,7 @@
       function (state) {
         if (chrome.runtime.lastError) {
           currentPageState = null;
+          checkedBuiltInState = null;
           setStatus('idle', '等待頁面', '重新整理頁面後可取得即時診斷');
           renderBuiltInStatus(null);
           return;
@@ -241,23 +251,10 @@
           currentPageState = state;
           renderStatus(state);
           renderDiagnostics(state);
-          renderBuiltInStatus(state);
+          renderBuiltInStatus(checkedBuiltInState);
         }
       }
     );
-  }
-
-  function startPageStatePolling() {
-    stopPageStatePolling();
-    pageStatePollId = setInterval(function () {
-      refreshPageState();
-    }, 1200);
-  }
-
-  function stopPageStatePolling() {
-    if (!pageStatePollId) return;
-    clearInterval(pageStatePollId);
-    pageStatePollId = 0;
   }
 
   function renderSiteMode() {
@@ -305,7 +302,7 @@
       $providerModelInput.placeholder = 'qwen2.5:3b';
     }
 
-    renderBuiltInStatus(currentPageState);
+    renderBuiltInStatus(checkedBuiltInState);
   }
 
   function renderBuiltInStatus(state) {
@@ -316,12 +313,54 @@
     var status = state && state.builtInAiStatus ? state.builtInAiStatus : 'idle';
     var detail = state && state.builtInAiDetail
       ? state.builtInAiDetail
-      : '等待目前分頁回報 Chrome 內建 AI 狀態。';
+      : '按一下右側按鈕後，才會對目前分頁執行一次 Chrome 內建 AI 狀態檢查。';
     var visual = mapBuiltInStatus(status);
 
     $builtInStatusChip.className = 'provider-status-chip ' + visual.tone;
     $builtInStatusChip.textContent = visual.label;
+    $builtInStatusChip.disabled = status === 'checking';
     $builtInStatusDetail.textContent = detail;
+  }
+
+  function runBuiltInStatusCheck() {
+    if (!activeTab || !currentSettings) return;
+    if (currentSettings.translationProvider !== ST.PROVIDERS.BUILT_IN) return;
+
+    checkedBuiltInState = {
+      builtInAiStatus: 'checking',
+      builtInAiDetail: '正在向目前分頁查詢 Chrome 內建 AI 狀態。',
+    };
+    renderBuiltInStatus(checkedBuiltInState);
+
+    chrome.tabs.sendMessage(
+      activeTab.id,
+      { type: ST.MESSAGES.CHECK_BUILT_IN_STATUS },
+      function (state) {
+        if (chrome.runtime.lastError) {
+          checkedBuiltInState = {
+            builtInAiStatus: 'error',
+            builtInAiDetail: '目前分頁無法回報狀態，請重新整理頁面後再試一次。',
+          };
+          renderBuiltInStatus(checkedBuiltInState);
+          return;
+        }
+
+        if (!state) {
+          checkedBuiltInState = {
+            builtInAiStatus: 'error',
+            builtInAiDetail: '這次檢查沒有收到任何狀態回覆。',
+          };
+          renderBuiltInStatus(checkedBuiltInState);
+          return;
+        }
+
+        currentPageState = state;
+        checkedBuiltInState = state;
+        renderStatus(state);
+        renderDiagnostics(state);
+        renderBuiltInStatus(checkedBuiltInState);
+      }
+    );
   }
 
   function mapBuiltInStatus(status) {
@@ -343,7 +382,7 @@
     if (status === 'unsupported' || status === 'unavailable' || status === 'error') {
       return { tone: 'error', label: '不可用' };
     }
-    return { tone: 'idle', label: '待檢查' };
+    return { tone: 'idle', label: '點擊檢查' };
   }
 
   function updateSiteOverride(siteKey, patch) {
