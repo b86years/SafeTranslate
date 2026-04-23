@@ -211,10 +211,14 @@
   }
 
   function shouldAutoTranslatePage() {
+    var translateByPolicy =
+      currentResolvedSettings.alwaysTranslate ||
+      currentResolvedSettings.autoTranslatePage !== false;
+
     return (
       window.top === window &&
       currentResolvedSettings.globalEnabled !== false &&
-      currentResolvedSettings.autoTranslatePage !== false &&
+      translateByPolicy &&
       !currentResolvedSettings.neverTranslate
     );
   }

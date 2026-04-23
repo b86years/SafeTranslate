@@ -60,6 +60,7 @@
 
     SITE_TRANSLATION: Object.freeze({
       INHERIT: 'inherit',
+      ALWAYS: 'always',
       NEVER: 'never',
     }),
 

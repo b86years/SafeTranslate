@@ -23,7 +23,7 @@ The project is focused on one goal: provide a stable, observable, and overrideab
 - Two protection modes: `patchOnly` and `blockAndTooltip`
 - Per-site override policies
 - Translation providers for Chrome built-in AI, OpenAI-compatible APIs, and Ollama
-- Target language selection, automatic page translation, and a per-site never-translate policy
+- Target language selection, automatic page translation, plus per-site always-translate and never-translate policies
 - Built-in diagnostics for detection reasons, fallback counts, and last handled errors
 - Background service worker for tab state, context menus, and translation caching
 
@@ -59,7 +59,7 @@ After installation, click the SafeTranslate toolbar icon to open the popup.
 - Toggle automatic translation for visible page content
 - `patchOnly` is the recommended default
 - `blockAndTooltip` blocks Chrome translation and uses a safe tooltip-based translation flow
-- You can set both a site policy and a never-translate rule per site, and site-level overrides take priority over the global mode
+- You can set both a site policy and a per-site always-translate or never-translate rule, and site-level overrides take priority over the global mode and global auto-translate setting
 
 You can also translate selected text from the context menu.
 

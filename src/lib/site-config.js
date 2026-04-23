@@ -99,6 +99,7 @@
   }
 
   function normalizeSiteTranslation(value) {
+    if (value === ST.SITE_TRANSLATION.ALWAYS) return value;
     if (value === ST.SITE_TRANSLATION.NEVER) return value;
     return ST.SITE_TRANSLATION.INHERIT;
   }
@@ -128,6 +129,7 @@
       siteKey: siteKey,
       siteMode: siteMode,
       siteTranslation: siteTranslation,
+      alwaysTranslate: siteTranslation === ST.SITE_TRANSLATION.ALWAYS,
       neverTranslate: siteTranslation === ST.SITE_TRANSLATION.NEVER,
       effectiveMode:
         siteMode === ST.SITE_OVERRIDES.INHERIT
