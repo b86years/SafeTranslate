@@ -657,6 +657,7 @@
     var selectedText;
     var directOriginalText = '';
     var selectedFromTranslatedNode = false;
+    var originalNodeText = '';
 
     if (!sel || !sel.rangeCount) {
       return createEmptySelectionDetails();
@@ -672,6 +673,9 @@
     var singleNodeSelection = getSingleTextNodeSelection(range);
     if (singleNodeSelection && originalTextByNode.has(singleNodeSelection.node)) {
       selectedFromTranslatedNode = true;
+      originalNodeText = normalizeSelectionText(
+        originalTextByNode.get(singleNodeSelection.node) || ''
+      );
       directOriginalText = resolveDirectOriginalSelection(
         singleNodeSelection,
         selectedText
@@ -682,6 +686,7 @@
       selectedText: selectedText,
       directOriginalText: directOriginalText,
       selectedFromTranslatedNode: selectedFromTranslatedNode,
+      originalNodeText: originalNodeText,
       sourceLanguage: readLanguageHint(getLanguageHintTarget(range)) || '',
     };
   }
@@ -691,6 +696,7 @@
       selectedText: '',
       directOriginalText: '',
       selectedFromTranslatedNode: false,
+      originalNodeText: '',
       sourceLanguage: '',
     };
   }

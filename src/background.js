@@ -815,6 +815,9 @@ async function resolveIgnoreTermCandidate(selectionText, selectionDetails, resol
   var directOriginalText = selectionDetails && selectionDetails.directOriginalText
     ? ignoreTermsHelper.normalizeIgnoreTerm(selectionDetails.directOriginalText)
     : '';
+  var originalNodeText = selectionDetails && selectionDetails.originalNodeText
+    ? ignoreTermsHelper.normalizeIgnoreTerm(selectionDetails.originalNodeText)
+    : '';
   var selectedText = selectionDetails && selectionDetails.selectedText
     ? selectionDetails.selectedText
     : String(selectionText || '').trim();
@@ -827,6 +830,13 @@ async function resolveIgnoreTermCandidate(selectionText, selectionDetails, resol
 
   if (directOriginalText) {
     return directOriginalText;
+  }
+
+  if (originalNodeText) {
+    var originalNodeMatch = resolveOriginalTermFromNode(originalNodeText, selectedText);
+    if (originalNodeMatch) {
+      return originalNodeMatch;
+    }
   }
 
   if (
@@ -851,14 +861,50 @@ async function resolveIgnoreTermCandidate(selectionText, selectionDetails, resol
       );
 
       if (reverseResult && reverseResult.translated) {
-        return reverseResult.translated;
+        var reverseMatchedTerm = resolveOriginalTermFromNode(
+          originalNodeText,
+          reverseResult.translated
+        );
+
+        return reverseMatchedTerm || reverseResult.translated;
       }
     } catch (_) {
-      return selectedText;
+      return resolveOriginalTermFromNode(originalNodeText, selectedText) || selectedText;
     }
   }
 
   return selectedText;
+}
+
+function resolveOriginalTermFromNode(originalNodeText, candidate) {
+  var source = String(originalNodeText || '').trim();
+  var rawCandidate = String(candidate || '').trim();
+  var candidateLoose = normalizeLooseTerm(rawCandidate);
+  var tokens;
+  var i;
+
+  if (!source || !candidateLoose) {
+    return '';
+  }
+
+  if (normalizeLooseTerm(source) === candidateLoose) {
+    return source;
+  }
+
+  tokens = source.match(/[\p{L}\p{N}]+(?:[-_'’][\p{L}\p{N}]+)*/gu) || [];
+  for (i = 0; i < tokens.length; i++) {
+    if (normalizeLooseTerm(tokens[i]) === candidateLoose) {
+      return tokens[i];
+    }
+  }
+
+  return '';
+}
+
+function normalizeLooseTerm(value) {
+  return String(value || '')
+    .toLocaleLowerCase()
+    .replace(/[\s\-_'.’`"!?,.:;()[\]{}<>/\\|]+/g, '');
 }
 
 function hasIgnoreTerm(terms, nextTerm) {
