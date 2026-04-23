@@ -255,7 +255,9 @@
         if (!shouldAutoTranslatePage()) break;
         try {
           await translateNode(nodes[i], snapshot);
-        } catch (_) {}
+        } catch (error) {
+          console.warn('SafeTranslate auto translation failed:', error && error.message ? error.message : error);
+        }
       }
     } finally {
       isApplyingAutoTranslation = false;
@@ -336,6 +338,10 @@
           url: location.href,
         },
       });
+    }
+
+    if (result && result.error) {
+      throw new Error(result.message || 'Translation failed');
     }
 
     if (!result || !result.translated || result.translated === text) return;
@@ -725,13 +731,17 @@
             '<div class="src">SafeTranslate</div>';
         } else {
           tooltipContent.innerHTML =
-            '<span class="loading">翻譯失敗</span>';
+            '<span class="loading">' +
+            escapeHtml(res && res.message ? res.message : '翻譯失敗') +
+            '</span>';
         }
       })
-      .catch(function () {
+      .catch(function (error) {
         if (tooltipContent) {
           tooltipContent.innerHTML =
-            '<span class="loading">翻譯失敗</span>';
+            '<span class="loading">' +
+            escapeHtml(error && error.message ? error.message : '翻譯失敗') +
+            '</span>';
         }
       });
   }

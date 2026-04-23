@@ -427,7 +427,7 @@
 
   function normalizeOllamaBaseUrlForUi() {
     var value = String((currentSettings && currentSettings.providerBaseUrl) || 'http://127.0.0.1:11434').replace(/\/+$/, '');
-    value = value.replace(/\/api\/(generate|chat|tags)$/, '');
+    value = value.replace(/\/(api\/(generate|chat|tags)|v1\/chat\/completions)$/, '');
     return value;
   }
 

@@ -79,7 +79,8 @@
       TRANSLATION_PROVIDER: 'builtIn',
       PROVIDER_BASE_URL: '',
       PROVIDER_MODEL: '',
-      REQUEST_TIMEOUT_MS: 5000,
+      REQUEST_TIMEOUT_MS: 45000,
+      STATUS_CHECK_TIMEOUT_MS: 5000,
     }),
 
     DOM_ATTRS: Object.freeze({

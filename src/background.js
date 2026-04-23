@@ -480,33 +480,109 @@ async function translateWithOllama(payload) {
     throw new Error('Ollama model is required');
   }
 
-  var endpoint = normalizeOllamaBaseUrl(payload.baseUrl);
-  var data = await postJson(endpoint, {
-    model: payload.model,
-    prompt:
-      'Translate the following text from ' +
-      payload.sourceLanguage +
-      ' to ' +
-      payload.targetLang +
-      '. Return only the translated text.\n\n' +
-      payload.text,
-    stream: false,
-    options: {
-      temperature: 0.1,
+  var systemPrompt =
+    'You are a professional translation engine. Return only the translated text without explanations.';
+  var userPrompt =
+    'Translate the following text from ' +
+    payload.sourceLanguage +
+    ' to ' +
+    payload.targetLang +
+    '. Return only the translated text.\n\n' +
+    payload.text;
+  var attempts = [
+    {
+      endpoint: normalizeOllamaChatCompletionsUrl(payload.baseUrl),
+      body: {
+        model: payload.model,
+        stream: false,
+        temperature: 0.1,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      },
+      pick: function (data) {
+        return data &&
+          data.choices &&
+          data.choices[0] &&
+          data.choices[0].message &&
+          data.choices[0].message.content
+          ? String(data.choices[0].message.content).trim()
+          : '';
+      },
     },
-  });
+    {
+      endpoint: normalizeOllamaNativeChatUrl(payload.baseUrl),
+      body: {
+        model: payload.model,
+        stream: false,
+        options: {
+          temperature: 0.1,
+        },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      },
+      pick: function (data) {
+        return data && data.message && data.message.content
+          ? String(data.message.content).trim()
+          : '';
+      },
+    },
+    {
+      endpoint: normalizeOllamaGenerateUrl(payload.baseUrl),
+      body: {
+        model: payload.model,
+        prompt: userPrompt,
+        stream: false,
+        options: {
+          temperature: 0.1,
+        },
+      },
+      pick: function (data) {
+        return data && data.response ? String(data.response).trim() : '';
+      },
+    },
+  ];
+  var lastError = null;
+  var attemptErrors = [];
 
-  var translated = data && data.response ? String(data.response).trim() : '';
-  if (!translated) {
-    throw new Error('Ollama returned an empty response');
+  for (var i = 0; i < attempts.length; i++) {
+    var attempt = attempts[i];
+
+    try {
+      var data = await postJson(attempt.endpoint, attempt.body);
+      var translated = attempt.pick(data);
+
+      if (translated) {
+        return { translated: translated };
+      }
+
+      lastError = new Error('Ollama returned an empty response from ' + attempt.endpoint);
+    } catch (error) {
+      lastError = buildOllamaRequestError(error, attempt.endpoint);
+      attemptErrors.push(lastError.message);
+    }
   }
 
-  return { translated: translated };
+  if (attemptErrors.length && allOllamaAttemptsForbidden(attemptErrors)) {
+    throw new Error(getOllamaForbiddenHelpMessage());
+  }
+
+  throw lastError || new Error('Ollama translation failed');
 }
 
 async function listOllamaModels(payload) {
   var endpoint = normalizeOllamaTagsUrl(payload.baseUrl);
-  var data = await fetchJson(endpoint);
+  var data;
+
+  try {
+    data = await fetchJson(endpoint, null, ST.DEFAULTS.STATUS_CHECK_TIMEOUT_MS);
+  } catch (error) {
+    throw buildOllamaRequestError(error, endpoint);
+  }
+
   var rawModels = data && Array.isArray(data.models) ? data.models : [];
   var models = rawModels
     .map(function (item) {
@@ -649,11 +725,27 @@ async function checkOllamaStatus(payload) {
   }
 
   if (matched) {
-    return {
-      kind: 'available',
-      label: '可用',
-      detail: '已連線到 Ollama，且本機已安裝模型 ' + payload.model + '。',
-    };
+    try {
+      await translateWithOllama({
+        model: payload.model,
+        baseUrl: payload.baseUrl,
+        sourceLanguage: 'en',
+        targetLang: 'zh-TW',
+        text: 'Hello world',
+      });
+
+      return {
+        kind: 'available',
+        label: '可用',
+        detail: '已連線到 Ollama，且模型 ' + payload.model + ' 可成功回應翻譯請求。',
+      };
+    } catch (error) {
+      return {
+        kind: 'error',
+        label: '翻譯失敗',
+        detail: error && error.message ? error.message : 'Ollama 無法完成翻譯請求。',
+      };
+    }
   }
 
   if (models.length) {
@@ -671,11 +763,11 @@ async function checkOllamaStatus(payload) {
   };
 }
 
-async function postJson(url, body, headers) {
+async function postJson(url, body, headers, timeoutMs) {
   var controller = new AbortController();
   var timeoutId = setTimeout(function () {
     controller.abort();
-  }, ST.DEFAULTS.REQUEST_TIMEOUT_MS);
+  }, timeoutMs || ST.DEFAULTS.REQUEST_TIMEOUT_MS);
 
   var res;
   try {
@@ -701,11 +793,11 @@ async function postJson(url, body, headers) {
   return await res.json();
 }
 
-async function fetchJson(url, headers) {
+async function fetchJson(url, headers, timeoutMs) {
   var controller = new AbortController();
   var timeoutId = setTimeout(function () {
     controller.abort();
-  }, ST.DEFAULTS.REQUEST_TIMEOUT_MS);
+  }, timeoutMs || ST.DEFAULTS.REQUEST_TIMEOUT_MS);
 
   var res;
   try {
@@ -738,16 +830,54 @@ function normalizeOpenAIModelsUrl(baseUrl) {
     .replace(/\/models$/, '') + '/models';
 }
 
-function normalizeOllamaBaseUrl(baseUrl) {
+function normalizeOllamaRootUrl(baseUrl) {
+  var value = String(baseUrl || 'http://127.0.0.1:11434').replace(/\/+$/, '');
+  return value.replace(/\/(api\/(generate|chat|tags)|v1\/chat\/completions)$/, '');
+}
+
+function normalizeOllamaGenerateUrl(baseUrl) {
   var value = String(baseUrl || 'http://127.0.0.1:11434').replace(/\/+$/, '');
   if (/\/api\/generate$/.test(value)) return value;
-  return value + '/api/generate';
+  return normalizeOllamaRootUrl(value) + '/api/generate';
+}
+
+function normalizeOllamaNativeChatUrl(baseUrl) {
+  var value = String(baseUrl || 'http://127.0.0.1:11434').replace(/\/+$/, '');
+  if (/\/api\/chat$/.test(value)) return value;
+  return normalizeOllamaRootUrl(value) + '/api/chat';
+}
+
+function normalizeOllamaChatCompletionsUrl(baseUrl) {
+  var value = String(baseUrl || 'http://127.0.0.1:11434').replace(/\/+$/, '');
+  if (/\/v1\/chat\/completions$/.test(value)) return value;
+  return normalizeOllamaRootUrl(value) + '/v1/chat/completions';
 }
 
 function normalizeOllamaTagsUrl(baseUrl) {
-  var value = String(baseUrl || 'http://127.0.0.1:11434').replace(/\/+$/, '');
-  value = value.replace(/\/api\/(generate|chat|tags)$/, '');
-  return value + '/api/tags';
+  return normalizeOllamaRootUrl(baseUrl) + '/api/tags';
+}
+
+function buildOllamaRequestError(error, endpoint) {
+  var message = error && error.message ? error.message : 'Unknown error';
+
+  if (/Provider API 403/.test(message)) {
+    return new Error(getOllamaForbiddenHelpMessage());
+  }
+
+  return new Error('Ollama request failed at ' + endpoint + ': ' + message);
+}
+
+function allOllamaAttemptsForbidden(errors) {
+  for (var i = 0; i < errors.length; i++) {
+    if (errors[i] !== getOllamaForbiddenHelpMessage()) {
+      return false;
+    }
+  }
+  return errors.length > 0;
+}
+
+function getOllamaForbiddenHelpMessage() {
+  return 'Ollama 拒絕了瀏覽器擴充來源（HTTP 403）。請設定 OLLAMA_ORIGINS=*，Windows 另外確認 OLLAMA_HOST=0.0.0.0，然後完整重啟 Ollama；Base URL 建議使用 http://127.0.0.1:11434/v1/chat/completions。';
 }
 
 function broadcastSettings(_partial, tabId) {
