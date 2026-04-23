@@ -58,6 +58,13 @@
             </select>
             <p class="field-hint" id="providerHint">優先使用本機 Translator API，在支援裝置上可離線運作。</p>
           </div>
+          <div class="field-group field-span-2" id="builtInStatusGroup">
+            <div class="provider-status-row">
+              <span class="field-label">Chrome AI 狀態</span>
+              <span class="provider-status-chip idle" id="builtInStatusChip">待檢查</span>
+            </div>
+            <p class="field-hint" id="builtInStatusDetail">等待目前分頁回報 Chrome 內建 AI 狀態。</p>
+          </div>
           <div class="field-group field-span-2 provider-field" id="providerBaseGroup">
             <label class="field-label" for="providerBaseUrlInput">Base URL</label>
             <input id="providerBaseUrlInput" class="text-field" type="url" placeholder="https://api.example.com/v1">

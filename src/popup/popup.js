@@ -22,6 +22,9 @@
   var $targetLanguageSelect = document.getElementById('targetLanguageSelect');
   var $providerSelect = document.getElementById('providerSelect');
   var $providerHint = document.getElementById('providerHint');
+  var $builtInStatusGroup = document.getElementById('builtInStatusGroup');
+  var $builtInStatusChip = document.getElementById('builtInStatusChip');
+  var $builtInStatusDetail = document.getElementById('builtInStatusDetail');
   var $providerBaseGroup = document.getElementById('providerBaseGroup');
   var $providerBaseUrlInput = document.getElementById('providerBaseUrlInput');
   var $providerModelGroup = document.getElementById('providerModelGroup');
@@ -41,6 +44,7 @@
   var $footerVersion = document.getElementById('footerVersion');
   var activeTab = null;
   var currentSettings = null;
+  var currentPageState = null;
 
   // ── Load current-tab status ──
 
@@ -48,21 +52,7 @@
     if (!tabs[0]) return;
     activeTab = tabs[0];
     $siteHost.textContent = siteConfig.normalizeHost(activeTab.url) || '無法辨識';
-    chrome.tabs.sendMessage(
-      activeTab.id,
-      { type: ST.MESSAGES.GET_PAGE_STATE },
-      function (state) {
-        if (chrome.runtime.lastError) {
-          setStatus('idle', '等待頁面', '重新整理頁面後可取得即時診斷');
-          return;
-        }
-
-        if (state) {
-          renderStatus(state);
-          renderDiagnostics(state);
-        }
-      }
-    );
+    refreshPageState();
   });
 
   // ── Load settings ──
@@ -192,6 +182,7 @@
 
     renderSiteMode();
     renderProviderFields();
+    refreshPageState();
   }
 
   function selectMode(value) {
@@ -229,6 +220,30 @@
     $diagLastError.textContent = state.lastHandledError || '-';
   }
 
+  function refreshPageState() {
+    if (!activeTab) return;
+
+    chrome.tabs.sendMessage(
+      activeTab.id,
+      { type: ST.MESSAGES.GET_PAGE_STATE },
+      function (state) {
+        if (chrome.runtime.lastError) {
+          currentPageState = null;
+          setStatus('idle', '等待頁面', '重新整理頁面後可取得即時診斷');
+          renderBuiltInStatus(null);
+          return;
+        }
+
+        if (state) {
+          currentPageState = state;
+          renderStatus(state);
+          renderDiagnostics(state);
+          renderBuiltInStatus(state);
+        }
+      }
+    );
+  }
+
   function renderSiteMode() {
     if (!activeTab || !currentSettings) return;
     var resolved = siteConfig.resolveSiteSettings(activeTab.url, {
@@ -253,10 +268,12 @@
     var showBaseUrl = provider !== ST.PROVIDERS.BUILT_IN;
     var showModel = provider !== ST.PROVIDERS.BUILT_IN;
     var showApiKey = provider === ST.PROVIDERS.OPENAI_COMPATIBLE;
+    var showBuiltInStatus = provider === ST.PROVIDERS.BUILT_IN;
 
     $providerBaseGroup.hidden = !showBaseUrl;
     $providerModelGroup.hidden = !showModel;
     $providerApiKeyGroup.hidden = !showApiKey;
+    $builtInStatusGroup.hidden = !showBuiltInStatus;
 
     if (provider === ST.PROVIDERS.BUILT_IN) {
       $providerHint.textContent = '優先使用本機 Translator API，在支援裝置上可離線運作。';
@@ -271,6 +288,45 @@
       $providerBaseUrlInput.placeholder = 'http://127.0.0.1:11434';
       $providerModelInput.placeholder = 'qwen2.5:3b';
     }
+
+    renderBuiltInStatus(currentPageState);
+  }
+
+  function renderBuiltInStatus(state) {
+    if (!currentSettings || currentSettings.translationProvider !== ST.PROVIDERS.BUILT_IN) {
+      return;
+    }
+
+    var status = state && state.builtInAiStatus ? state.builtInAiStatus : 'idle';
+    var detail = state && state.builtInAiDetail
+      ? state.builtInAiDetail
+      : '等待目前分頁回報 Chrome 內建 AI 狀態。';
+    var visual = mapBuiltInStatus(status);
+
+    $builtInStatusChip.className = 'provider-status-chip ' + visual.tone;
+    $builtInStatusChip.textContent = visual.label;
+    $builtInStatusDetail.textContent = detail;
+  }
+
+  function mapBuiltInStatus(status) {
+    if (status === 'ready') {
+      return { tone: 'ready', label: '已就緒' };
+    }
+    if (
+      status === 'waiting-activation' ||
+      status === 'downloadable' ||
+      status === 'downloading' ||
+      status === 'waiting-language'
+    ) {
+      return { tone: 'warn', label: '待準備' };
+    }
+    if (status === 'inactive') {
+      return { tone: 'idle', label: '未使用' };
+    }
+    if (status === 'unsupported' || status === 'unavailable' || status === 'error') {
+      return { tone: 'error', label: '不可用' };
+    }
+    return { tone: 'idle', label: '待檢查' };
   }
 
   function updateSiteOverride(siteKey, patch) {
