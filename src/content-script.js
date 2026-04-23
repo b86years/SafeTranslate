@@ -346,7 +346,7 @@
     }
     if (parent.closest('#safe-translate-tooltip')) return false;
     if (parent.closest('[data-safe-translate-skip="1"]')) return false;
-    if (parent.closest('script, style, noscript, textarea, input, select, option, button, code, pre')) {
+    if (parent.closest('script, style, noscript, textarea, input, select, option, code, pre')) {
       return false;
     }
     if (parent.closest('[contenteditable="true"]')) return false;
