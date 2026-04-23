@@ -27,6 +27,14 @@ function createTabState() {
     protectionVersion: '',
     selectionAnchor: null,
     siteKey: '',
+    activeTranslationCount: 0,
+    loadingFrameIndex: 0,
+    loadingTimer: null,
+    loadingStopTimer: null,
+    isVisualLoading: false,
+    visualLoadingUntil: 0,
+    lastTranslationStartedAt: 0,
+    lastTranslationFinishedAt: 0,
   };
 }
 
@@ -38,11 +46,13 @@ function getTabState(tabId) {
 }
 
 chrome.tabs.onRemoved.addListener(function (tabId) {
+  clearLoadingAnimation(tabId, tabStates.get(tabId));
   tabStates.delete(tabId);
 });
 
 chrome.tabs.onUpdated.addListener(function (tabId, changeInfo) {
   if (changeInfo.status === 'loading') {
+    clearLoadingAnimation(tabId, tabStates.get(tabId));
     tabStates.set(tabId, createTabState());
     setBadge(tabId, 'idle');
   }
@@ -60,10 +70,334 @@ var BADGE_MAP = {
   error: { text: '!', color: ST.BADGE.ERROR },
 };
 
+var DEFAULT_ACTION_ICON = {
+  16: 'icons/icon16.png',
+  48: 'icons/icon48.png',
+};
+
+var LOADING_ICON_SIZES = [16, 32];
+var LOADING_ICON_INTERVAL_MS = 120;
+var LOADING_ICON_FRAME_COUNT = 15;
+var MIN_LOADING_VISIBLE_MS = 1000;
+var loadingIconFrames = null;
+
 function setBadge(tabId, status) {
   var cfg = BADGE_MAP[status] || BADGE_MAP.idle;
   chrome.action.setBadgeText({ tabId: tabId, text: cfg.text });
   chrome.action.setBadgeBackgroundColor({ tabId: tabId, color: cfg.color });
+}
+
+function setDefaultActionIcon(tabId) {
+  if (!tabId) {
+    return;
+  }
+
+  chrome.action.setIcon({
+    tabId: tabId,
+    path: DEFAULT_ACTION_ICON,
+  });
+}
+
+function clearLoadingAnimation(tabId, state) {
+  var targetState = state || tabStates.get(tabId);
+
+  if (targetState && targetState.loadingTimer) {
+    clearInterval(targetState.loadingTimer);
+  }
+  if (targetState && targetState.loadingStopTimer) {
+    clearTimeout(targetState.loadingStopTimer);
+  }
+
+  if (targetState) {
+    targetState.activeTranslationCount = 0;
+    targetState.loadingFrameIndex = 0;
+    targetState.loadingTimer = null;
+    targetState.loadingStopTimer = null;
+    targetState.isVisualLoading = false;
+    targetState.visualLoadingUntil = 0;
+  }
+
+  setDefaultActionIcon(tabId);
+}
+
+function startLoadingAnimation(tabId) {
+  if (!tabId) {
+    return;
+  }
+
+  var state = getTabState(tabId);
+  var now = Date.now();
+  var wasIdle = state.activeTranslationCount === 0;
+
+  state.activeTranslationCount += 1;
+  state.isVisualLoading = true;
+  if (wasIdle) {
+    state.lastTranslationStartedAt = now;
+  }
+  state.visualLoadingUntil = Math.max(state.visualLoadingUntil || 0, now + MIN_LOADING_VISIBLE_MS);
+
+  if (state.loadingStopTimer) {
+    clearTimeout(state.loadingStopTimer);
+    state.loadingStopTimer = null;
+  }
+
+  if (state.loadingTimer) {
+    return;
+  }
+
+  var frames = getLoadingIconFrames();
+  if (!frames.length) {
+    return;
+  }
+
+  state.loadingFrameIndex = 0;
+  applyLoadingFrame(tabId, state.loadingFrameIndex);
+  state.loadingTimer = setInterval(function () {
+    var liveState = tabStates.get(tabId);
+
+    if (!liveState || liveState.activeTranslationCount <= 0) {
+      clearLoadingAnimation(tabId, liveState);
+      return;
+    }
+
+    liveState.loadingFrameIndex =
+      (liveState.loadingFrameIndex + 1) % frames.length;
+    applyLoadingFrame(tabId, liveState.loadingFrameIndex);
+  }, LOADING_ICON_INTERVAL_MS);
+}
+
+function stopLoadingAnimation(tabId) {
+  var state = tabStates.get(tabId);
+
+  if (!state) {
+    setDefaultActionIcon(tabId);
+    return;
+  }
+
+  state.activeTranslationCount = Math.max(0, state.activeTranslationCount - 1);
+  if (state.activeTranslationCount > 0) {
+    return;
+  }
+
+  if (state.loadingStopTimer) {
+    clearTimeout(state.loadingStopTimer);
+    state.loadingStopTimer = null;
+  }
+
+  var remaining = Math.max(0, (state.visualLoadingUntil || 0) - Date.now());
+  if (remaining > 0) {
+    state.loadingStopTimer = setTimeout(function () {
+      var liveState = tabStates.get(tabId);
+
+      if (!liveState) {
+        setDefaultActionIcon(tabId);
+        return;
+      }
+
+      liveState.loadingStopTimer = null;
+      if (liveState.activeTranslationCount > 0) {
+        return;
+      }
+
+      finishLoadingAnimation(tabId, liveState);
+    }, remaining);
+    return;
+  }
+
+  finishLoadingAnimation(tabId, state);
+}
+
+function finishLoadingAnimation(tabId, state) {
+  if (state) {
+    state.lastTranslationFinishedAt = Date.now();
+  }
+
+  clearLoadingAnimation(tabId, state);
+}
+
+function applyLoadingFrame(tabId, frameIndex) {
+  var frames = getLoadingIconFrames();
+  var frame = frames[frameIndex % frames.length];
+
+  if (!frame) {
+    return;
+  }
+
+  chrome.action.setIcon({
+    tabId: tabId,
+    imageData: frame,
+  });
+}
+
+function getLoadingIconFrames() {
+  if (loadingIconFrames) {
+    return loadingIconFrames;
+  }
+
+  if (typeof OffscreenCanvas === 'undefined') {
+    loadingIconFrames = [];
+    return loadingIconFrames;
+  }
+
+  loadingIconFrames = [];
+
+  for (var frameIndex = 0; frameIndex < LOADING_ICON_FRAME_COUNT; frameIndex += 1) {
+    var frame = {};
+
+    LOADING_ICON_SIZES.forEach(function (size) {
+      frame[size] = drawLoadingIconFrame(size, frameIndex);
+    });
+
+    loadingIconFrames.push(frame);
+  }
+
+  return loadingIconFrames;
+}
+
+function drawLoadingIconFrame(size, frameIndex) {
+  var canvas = new OffscreenCanvas(size, size);
+  var ctx = canvas.getContext('2d');
+
+  if (!ctx) {
+    return null;
+  }
+
+  drawLoadingBackground(ctx, size);
+  drawLoadingGrid(ctx, size, frameIndex);
+  drawLoadingLabel(ctx, size);
+  return ctx.getImageData(0, 0, size, size);
+}
+
+function drawLoadingBackground(ctx, size) {
+  var gradient = ctx.createLinearGradient(0, 0, size, size);
+
+  gradient.addColorStop(0, '#6757ff');
+  gradient.addColorStop(1, '#3d32c3');
+
+  ctx.clearRect(0, 0, size, size);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+  fillGridCell(ctx, size, 1, 2, 14, 1);
+  fillGridCell(ctx, size, 2, 12, 11, 1);
+}
+
+function drawLoadingGrid(ctx, size, frameIndex) {
+  var cells = [
+    { x: 1, y: 1 },
+    { x: 4, y: 1 },
+    { x: 7, y: 1 },
+    { x: 10, y: 1 },
+    { x: 13, y: 1 },
+    { x: 13, y: 4 },
+    { x: 13, y: 7 },
+    { x: 13, y: 10 },
+    { x: 10, y: 13 },
+    { x: 7, y: 13 },
+    { x: 4, y: 13 },
+    { x: 1, y: 13 },
+    { x: 1, y: 10 },
+    { x: 1, y: 7 },
+    { x: 1, y: 4 },
+  ];
+  var activeIndex = frameIndex % cells.length;
+
+  cells.forEach(function (cell, index) {
+    var distance = (index - activeIndex + cells.length) % cells.length;
+    var color = 'rgba(255, 255, 255, 0.16)';
+
+    if (distance === 0) {
+      color = '#ecfeff';
+    } else if (distance === 1 || distance === 2) {
+      color = 'rgba(165, 243, 252, 0.92)';
+    } else if (distance === 3) {
+      color = 'rgba(125, 211, 252, 0.65)';
+    }
+
+    ctx.fillStyle = color;
+    fillGridCell(ctx, size, cell.x, cell.y, 2, 2);
+  });
+}
+
+function drawLoadingLabel(ctx, size) {
+  var sGlyph = [
+    '11111',
+    '10000',
+    '10000',
+    '11111',
+    '00001',
+    '00001',
+    '11111',
+  ];
+  var tGlyph = [
+    '11111',
+    '00100',
+    '00100',
+    '00100',
+    '00100',
+    '00100',
+    '00100',
+  ];
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+  drawGlyph(ctx, size, sGlyph, 3, 5, 1, 1);
+  drawGlyph(ctx, size, tGlyph, 9, 5, 1, 1);
+
+  ctx.fillStyle = '#ffffff';
+  drawGlyph(ctx, size, sGlyph, 3, 4, 1, 1);
+  drawGlyph(ctx, size, tGlyph, 9, 4, 1, 1);
+}
+
+function drawGlyph(ctx, size, rows, originX, originY, cellWidth, cellHeight) {
+  rows.forEach(function (row, rowIndex) {
+    for (var colIndex = 0; colIndex < row.length; colIndex += 1) {
+      if (row.charAt(colIndex) !== '1') {
+        continue;
+      }
+
+      fillGridCell(
+        ctx,
+        size,
+        originX + colIndex * cellWidth,
+        originY + rowIndex * cellHeight,
+        cellWidth,
+        cellHeight
+      );
+    }
+  });
+}
+
+function fillGridCell(ctx, size, x, y, width, height) {
+  var unit = size / 16;
+  var left = Math.round(x * unit);
+  var top = Math.round(y * unit);
+  var cellWidth = Math.max(1, Math.round(width * unit));
+  var cellHeight = Math.max(1, Math.round(height * unit));
+
+  ctx.fillRect(left, top, cellWidth, cellHeight);
+}
+
+function getTabActivity(tabId) {
+  var state = tabId ? tabStates.get(tabId) : null;
+
+  if (!state) {
+    return {
+      activeTranslationCount: 0,
+      isVisualLoading: false,
+      visualLoadingUntil: 0,
+      lastTranslationStartedAt: 0,
+      lastTranslationFinishedAt: 0,
+    };
+  }
+
+  return {
+    activeTranslationCount: state.activeTranslationCount || 0,
+    isVisualLoading: Boolean(state.isVisualLoading),
+    visualLoadingUntil: state.visualLoadingUntil || 0,
+    lastTranslationStartedAt: state.lastTranslationStartedAt || 0,
+    lastTranslationFinishedAt: state.lastTranslationFinishedAt || 0,
+  };
 }
 
 // ──────────────────────────────────────────────
@@ -123,6 +457,10 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
             message: error && error.message ? error.message : 'Failed to update settings',
           });
         });
+      return true;
+
+    case ST.MESSAGES.GET_TAB_ACTIVITY:
+      sendResponse(getTabActivity(msg.tabId || tabId));
       return true;
 
     case ST.MESSAGES.GET_OLLAMA_MODELS:
@@ -210,6 +548,8 @@ async function translate(payload, tabId) {
     return await inFlightTranslations.get(key);
   }
 
+  startLoadingAnimation(tabId);
+
   var translationTask = (async function () {
     var result;
 
@@ -272,6 +612,7 @@ async function translate(payload, tabId) {
     return await translationTask;
   } finally {
     inFlightTranslations.delete(key);
+    stopLoadingAnimation(tabId);
   }
 }
 

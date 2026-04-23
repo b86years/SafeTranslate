@@ -20,6 +20,7 @@
       UPDATE_TAB_STATUS: 'updateTabStatus',
       TRANSLATE_TEXT: 'translateText',
       TRANSLATE_VIA_PAGE: 'translateViaPage',
+      GET_TAB_ACTIVITY: 'getTabActivity',
       CHECK_BUILT_IN_AI_STATUS: 'checkBuiltInAiStatus',
       CHECK_PROVIDER_STATUS: 'checkProviderStatus',
       GET_OLLAMA_MODELS: 'getOllamaModels',

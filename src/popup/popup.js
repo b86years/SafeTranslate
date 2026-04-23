@@ -14,9 +14,12 @@
   // ── DOM refs ──
 
   var $toggle = document.getElementById('globalToggle');
+  var $statusCard = document.getElementById('statusCard');
   var $indicator = document.getElementById('statusIndicator');
   var $label = document.getElementById('statusLabel');
   var $detail = document.getElementById('statusDetail');
+  var $activityChip = document.getElementById('activityChip');
+  var $activityMeta = document.getElementById('activityMeta');
   var $count = document.getElementById('protectionCount');
   var $radios = document.querySelectorAll('input[name="mode"]');
   var $targetLanguageSelect = document.getElementById('targetLanguageSelect');
@@ -49,6 +52,9 @@
   var activeTab = null;
   var currentSettings = null;
   var ollamaModelsLoadedFor = '';
+  var currentPageState = null;
+  var currentTabActivity = createIdleTabActivity();
+  var liveRefreshTimer = 0;
 
   // ── Load current-tab status ──
 
@@ -56,27 +62,8 @@
     if (!tabs[0]) return;
     activeTab = tabs[0];
     $siteHost.textContent = siteConfig.normalizeHost(activeTab.url) || '無法辨識';
-    chrome.tabs.sendMessage(
-      activeTab.id,
-      { type: ST.MESSAGES.GET_PAGE_STATE },
-      function (state) {
-        if (chrome.runtime.lastError) {
-          setStatus('idle', '等待頁面', '重新整理頁面後可取得即時診斷');
-          return;
-        }
-
-        if (state) {
-          renderStatus(state);
-          renderDiagnostics(state);
-          if (
-            currentSettings &&
-            currentSettings.translationProvider === ST.PROVIDERS.BUILT_IN
-          ) {
-            renderProviderStatus(state.builtInAiStatus || null);
-          }
-        }
-      }
-    );
+    refreshCurrentTabState();
+    startLiveRefresh();
   });
 
   // ── Load settings ──
@@ -107,6 +94,13 @@
   });
 
   $footerVersion.textContent = 'v' + ST.VERSION;
+
+  window.addEventListener('unload', function () {
+    if (liveRefreshTimer) {
+      clearInterval(liveRefreshTimer);
+      liveRefreshTimer = 0;
+    }
+  });
 
   // ── Event bindings ──
 
@@ -234,23 +228,180 @@
   }
 
   function renderStatus(state) {
-    if (!state.protectionActive) {
-      setStatus('error', '未掛載', '頁面尚未回報核心保護狀態');
-    } else if (state.translationDetected && state.isReactSite) {
-      setStatus('protecting', '保護中', '已偵測到 React 應用，翻譯保護已啟用');
-    } else if (state.translationDetected) {
-      setStatus('active', '翻譯中', '已偵測到 Chrome 翻譯，保護已就緒');
-    } else if (state.isReactSite) {
-      setStatus('ready', '就緒', '偵測到 React 應用，保護已啟用');
-    } else {
-      setStatus('idle', '監控中', '等待偵測翻譯活動');
-    }
+    currentPageState = state || null;
+    renderCompositeStatus();
   }
 
   function setStatus(cls, label, detail) {
     $indicator.className = 'status-indicator ' + cls;
     $label.textContent = label;
     $detail.textContent = detail;
+  }
+
+  function setActivityState(mode, label, meta) {
+    $statusCard.classList.remove('is-idle', 'is-busy', 'is-cooldown');
+    $statusCard.classList.add(
+      mode === 'busy' ? 'is-busy' : mode === 'cooldown' ? 'is-cooldown' : 'is-idle'
+    );
+    $activityChip.className = 'activity-chip ' + mode;
+    $activityChip.textContent = label;
+    $activityMeta.textContent = meta;
+  }
+
+  function renderCompositeStatus() {
+    var baseStatus = getPageStatusSummary(currentPageState);
+
+    if (currentTabActivity.isVisualLoading) {
+      setStatus(
+        'active',
+        '翻譯中',
+        currentPageState && currentPageState.isReactSite
+          ? '正在翻譯頁面文字，React 保護持續啟用。'
+          : '正在處理頁面文字，完成後會自動收斂。'
+      );
+      setActivityState(
+        'busy',
+        currentTabActivity.activeTranslationCount > 1
+          ? 'LIVE ×' + currentTabActivity.activeTranslationCount
+          : 'LIVE',
+        describeBusyActivity(currentTabActivity)
+      );
+      return;
+    }
+
+    if (wasRecentlyActive(currentTabActivity)) {
+      setStatus(
+        baseStatus.cls === 'error' ? 'ready' : baseStatus.cls,
+        '剛完成',
+        currentPageState && currentPageState.isReactSite
+          ? '最近一輪翻譯已完成，保護仍維持啟用。'
+          : '最近一輪翻譯已完成，仍持續監控新內容。'
+      );
+      setActivityState('cooldown', 'DONE', describeCooldownActivity(currentTabActivity));
+      return;
+    }
+
+    setStatus(baseStatus.cls, baseStatus.label, baseStatus.detail);
+    setActivityState('idle', 'STANDBY', describeIdleActivity(baseStatus));
+  }
+
+  function getPageStatusSummary(state) {
+    if (!state) {
+      return {
+        cls: 'idle',
+        label: '等待頁面',
+        detail: '重新整理頁面後可取得即時診斷。',
+      };
+    }
+
+    if (!state.protectionActive) {
+      return {
+        cls: 'error',
+        label: '未掛載',
+        detail: '頁面尚未回報核心保護狀態。',
+      };
+    }
+
+    if (state.translationDetected && state.isReactSite) {
+      return {
+        cls: 'protecting',
+        label: '保護中',
+        detail: '已偵測到 React 應用，翻譯保護已啟用。',
+      };
+    }
+
+    if (state.translationDetected) {
+      return {
+        cls: 'active',
+        label: '翻譯中',
+        detail: '已偵測到 Chrome 翻譯，保護已就緒。',
+      };
+    }
+
+    if (state.isReactSite) {
+      return {
+        cls: 'ready',
+        label: '就緒',
+        detail: '偵測到 React 應用，保護已啟用。',
+      };
+    }
+
+    return {
+      cls: 'idle',
+      label: '監控中',
+      detail: '等待偵測翻譯活動。',
+    };
+  }
+
+  function createIdleTabActivity() {
+    return {
+      activeTranslationCount: 0,
+      isVisualLoading: false,
+      visualLoadingUntil: 0,
+      lastTranslationStartedAt: 0,
+      lastTranslationFinishedAt: 0,
+    };
+  }
+
+  function normalizeTabActivity(activity) {
+    var safe = activity || {};
+    return {
+      activeTranslationCount: Number(safe.activeTranslationCount || 0),
+      isVisualLoading: Boolean(safe.isVisualLoading),
+      visualLoadingUntil: Number(safe.visualLoadingUntil || 0),
+      lastTranslationStartedAt: Number(safe.lastTranslationStartedAt || 0),
+      lastTranslationFinishedAt: Number(safe.lastTranslationFinishedAt || 0),
+    };
+  }
+
+  function wasRecentlyActive(activity) {
+    return Boolean(
+      activity &&
+      !activity.isVisualLoading &&
+      activity.lastTranslationFinishedAt &&
+      Date.now() - activity.lastTranslationFinishedAt < 8000
+    );
+  }
+
+  function describeBusyActivity(activity) {
+    var elapsed = activity.lastTranslationStartedAt
+      ? formatElapsed(Date.now() - activity.lastTranslationStartedAt)
+      : '剛開始';
+    var queueLabel = activity.activeTranslationCount > 1
+      ? '批次並行 ' + activity.activeTranslationCount + ' 筆'
+      : '單筆翻譯處理中';
+
+    return elapsed + ' · ' + queueLabel;
+  }
+
+  function describeCooldownActivity(activity) {
+    var ago = formatElapsed(Date.now() - activity.lastTranslationFinishedAt);
+    return ago + ' 前完成，介面維持穩定回饋';
+  }
+
+  function describeIdleActivity(baseStatus) {
+    if (baseStatus.label === '就緒') {
+      return '保護已掛載，等待新一輪翻譯工作';
+    }
+    if (baseStatus.label === '保護中') {
+      return '已偵測翻譯風險，保護持續工作中';
+    }
+    if (baseStatus.label === '未掛載') {
+      return '此分頁尚未回報執行狀態';
+    }
+    return '尚未收到新的翻譯工作階段';
+  }
+
+  function formatElapsed(ms) {
+    if (ms < 1000) {
+      return Math.max(0.1, Math.round(ms / 100) / 10).toFixed(1) + 's';
+    }
+
+    if (ms < 60000) {
+      return Math.round(ms / 1000) + 's';
+    }
+
+    return Math.round(ms / 60000) + 'm';
   }
 
   function renderDiagnostics(state) {
@@ -466,6 +617,62 @@
     $builtInStatusDetail.textContent = next.detail;
     $builtInCheckButton.disabled = false;
     $builtInCheckButton.textContent = '點擊檢查';
+  }
+
+  function startLiveRefresh() {
+    if (liveRefreshTimer) {
+      clearInterval(liveRefreshTimer);
+    }
+
+    liveRefreshTimer = setInterval(function () {
+      refreshCurrentTabState();
+    }, 500);
+  }
+
+  function refreshCurrentTabState() {
+    if (!activeTab) {
+      return;
+    }
+
+    chrome.tabs.sendMessage(
+      activeTab.id,
+      { type: ST.MESSAGES.GET_PAGE_STATE },
+      function (state) {
+        if (chrome.runtime.lastError) {
+          currentPageState = null;
+          renderCompositeStatus();
+          return;
+        }
+
+        if (state) {
+          renderStatus(state);
+          renderDiagnostics(state);
+          if (
+            currentSettings &&
+            currentSettings.translationProvider === ST.PROVIDERS.BUILT_IN
+          ) {
+            renderProviderStatus(state.builtInAiStatus || null);
+          }
+        }
+      }
+    );
+
+    chrome.runtime.sendMessage(
+      {
+        type: ST.MESSAGES.GET_TAB_ACTIVITY,
+        tabId: activeTab.id,
+      },
+      function (activity) {
+        if (chrome.runtime.lastError) {
+          currentTabActivity = createIdleTabActivity();
+          renderCompositeStatus();
+          return;
+        }
+
+        currentTabActivity = normalizeTabActivity(activity);
+        renderCompositeStatus();
+      }
+    );
   }
 
   function createIdleProviderStatus(provider) {
