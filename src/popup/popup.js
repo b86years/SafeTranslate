@@ -26,6 +26,8 @@
   var $providerBaseUrlInput = document.getElementById('providerBaseUrlInput');
   var $providerModelGroup = document.getElementById('providerModelGroup');
   var $providerModelInput = document.getElementById('providerModelInput');
+  var $providerModelSelect = document.getElementById('providerModelSelect');
+  var $providerModelHint = document.getElementById('providerModelHint');
   var $providerApiKeyGroup = document.getElementById('providerApiKeyGroup');
   var $providerApiKeyInput = document.getElementById('providerApiKeyInput');
   var $autoTranslateToggle = document.getElementById('autoTranslateToggle');
@@ -45,6 +47,7 @@
   var $footerVersion = document.getElementById('footerVersion');
   var activeTab = null;
   var currentSettings = null;
+  var ollamaModelsLoadedFor = '';
 
   // ── Load current-tab status ──
 
@@ -123,10 +126,17 @@
 
   $providerBaseUrlInput.addEventListener('change', function () {
     persist({ providerBaseUrl: this.value.trim() });
+    if ((currentSettings && currentSettings.translationProvider) === ST.PROVIDERS.OLLAMA) {
+      loadOllamaModels(true);
+    }
   });
 
   $providerModelInput.addEventListener('change', function () {
     persist({ providerModel: this.value.trim() });
+  });
+
+  $providerModelSelect.addEventListener('change', function () {
+    persist({ providerModel: this.value });
   });
 
   $providerApiKeyInput.addEventListener('change', function () {
@@ -180,6 +190,7 @@
     }
     if (partial.providerBaseUrl !== undefined && currentSettings) {
       currentSettings.providerBaseUrl = partial.providerBaseUrl;
+      ollamaModelsLoadedFor = '';
     }
     if (partial.providerModel !== undefined && currentSettings) {
       currentSettings.providerModel = partial.providerModel;
@@ -274,20 +285,133 @@
     $providerModelGroup.hidden = !showModel;
     $providerApiKeyGroup.hidden = !showApiKey;
     $builtInStatusCard.hidden = provider !== ST.PROVIDERS.BUILT_IN;
+    $providerModelSelect.hidden = provider !== ST.PROVIDERS.OLLAMA;
+    $providerModelInput.hidden = provider === ST.PROVIDERS.OLLAMA;
 
     if (provider === ST.PROVIDERS.BUILT_IN) {
       $providerHint.textContent = '優先使用本機 Translator API，在支援裝置上可離線運作。';
       $providerBaseUrlInput.placeholder = '';
       $providerModelInput.placeholder = '';
+      $providerModelHint.textContent = 'Chrome 內建 AI 會由瀏覽器自動管理模型。';
     } else if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
       $providerHint.textContent = '支援自訂 OpenAI 相容端點，API Key 只會留在目前裝置。';
       $providerBaseUrlInput.placeholder = 'https://api.example.com/v1';
       $providerModelInput.placeholder = 'gpt-4.1-mini';
+      $providerModelHint.textContent = '輸入要使用的模型名稱。';
     } else {
       $providerHint.textContent = '適合本機 Ollama，請確認 Chrome 可連到你的 Ollama 服務。';
       $providerBaseUrlInput.placeholder = 'http://127.0.0.1:11434';
       $providerModelInput.placeholder = 'qwen2.5:3b';
+      $providerModelHint.textContent = '直接讀取目前 Ollama 可用模型。';
+      if (!ollamaModelsLoadedFor || ollamaModelsLoadedFor !== normalizeOllamaBaseUrlForUi()) {
+        loadOllamaModels(false);
+      } else {
+        syncOllamaModelSelection(currentSettings.providerModel || '');
+      }
     }
+  }
+
+  function loadOllamaModels(forceReload) {
+    if (!currentSettings) return;
+
+    var baseUrl = normalizeOllamaBaseUrlForUi();
+    if (!forceReload && ollamaModelsLoadedFor === baseUrl) {
+      syncOllamaModelSelection(currentSettings.providerModel || '');
+      return;
+    }
+
+    ollamaModelsLoadedFor = '';
+    $providerModelSelect.innerHTML = '<option value="">載入模型清單中...</option>';
+    $providerModelSelect.value = '';
+
+    chrome.runtime.sendMessage(
+      {
+        type: ST.MESSAGES.GET_OLLAMA_MODELS,
+        payload: {
+          baseUrl: currentSettings.providerBaseUrl || '',
+        },
+      },
+      function (response) {
+        if (chrome.runtime.lastError) {
+          renderOllamaModelOptions([], currentSettings.providerModel || '', chrome.runtime.lastError.message);
+          return;
+        }
+
+        if (!response || response.error || response.ok === false) {
+          renderOllamaModelOptions(
+            [],
+            currentSettings.providerModel || '',
+            response && response.message ? response.message : '無法讀取 Ollama 模型。'
+          );
+          return;
+        }
+
+        ollamaModelsLoadedFor = baseUrl;
+        renderOllamaModelOptions(response.models || [], currentSettings.providerModel || '', '');
+      }
+    );
+  }
+
+  function renderOllamaModelOptions(models, selectedValue, errorMessage) {
+    $providerModelSelect.innerHTML = '';
+
+    if (errorMessage) {
+      appendOption($providerModelSelect, '', '無法載入模型');
+      $providerModelSelect.value = '';
+      $providerModelHint.textContent = errorMessage;
+      return;
+    }
+
+    if (!models.length) {
+      appendOption($providerModelSelect, '', '找不到可用模型');
+      $providerModelSelect.value = '';
+      $providerModelHint.textContent = '此 Ollama 端點目前沒有可選模型。';
+      return;
+    }
+
+    appendOption($providerModelSelect, '', '選擇 Ollama 模型');
+    for (var i = 0; i < models.length; i++) {
+      var item = models[i];
+      var label = item.name;
+      if (item.parameterSize || item.family) {
+        label += ' · ' + [item.parameterSize, item.family].filter(Boolean).join(' / ');
+      }
+      appendOption($providerModelSelect, item.name, label);
+    }
+
+    syncOllamaModelSelection(selectedValue);
+    $providerModelHint.textContent = '直接讀取目前 Ollama 可用模型。';
+  }
+
+  function syncOllamaModelSelection(selectedValue) {
+    var value = selectedValue || '';
+    for (var i = 0; i < $providerModelSelect.options.length; i++) {
+      if ($providerModelSelect.options[i].value === value) {
+        $providerModelSelect.value = value;
+        return;
+      }
+    }
+
+    if (value) {
+      appendOption($providerModelSelect, value, value + ' · 目前設定');
+      $providerModelSelect.value = value;
+      return;
+    }
+
+    $providerModelSelect.value = '';
+  }
+
+  function appendOption(selectEl, value, label) {
+    var option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    selectEl.appendChild(option);
+  }
+
+  function normalizeOllamaBaseUrlForUi() {
+    var value = String((currentSettings && currentSettings.providerBaseUrl) || 'http://127.0.0.1:11434').replace(/\/+$/, '');
+    value = value.replace(/\/api\/(generate|chat|tags)$/, '');
+    return value;
   }
 
   function renderBuiltInStatus(status) {

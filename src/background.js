@@ -125,6 +125,19 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         });
       return true;
 
+    case ST.MESSAGES.GET_OLLAMA_MODELS:
+      listOllamaModels(msg.payload || {})
+        .then(sendResponse)
+        .catch(function (error) {
+          sendResponse({
+            ok: false,
+            error: true,
+            models: [],
+            message: error && error.message ? error.message : 'Failed to load Ollama models',
+          });
+        });
+      return true;
+
     // ── Translation request ──
 
     case ST.MESSAGES.TRANSLATE_TEXT:
@@ -479,6 +492,40 @@ async function translateWithOllama(payload) {
   return { translated: translated };
 }
 
+async function listOllamaModels(payload) {
+  var endpoint = normalizeOllamaTagsUrl(payload.baseUrl);
+  var data = await fetchJson(endpoint);
+  var rawModels = data && Array.isArray(data.models) ? data.models : [];
+  var models = rawModels
+    .map(function (item) {
+      return {
+        name: item && item.name ? String(item.name) : '',
+        size: item && item.size ? item.size : 0,
+        family:
+          item && item.details && item.details.family
+            ? String(item.details.family)
+            : '',
+        parameterSize:
+          item && item.details && item.details.parameter_size
+            ? String(item.details.parameter_size)
+            : '',
+      };
+    })
+    .filter(function (item) {
+      return Boolean(item.name);
+    });
+
+  models.sort(function (a, b) {
+    return a.name.localeCompare(b.name);
+  });
+
+  return {
+    ok: true,
+    models: models,
+    endpoint: endpoint,
+  };
+}
+
 async function postJson(url, body, headers) {
   var controller = new AbortController();
   var timeoutId = setTimeout(function () {
@@ -509,6 +556,30 @@ async function postJson(url, body, headers) {
   return await res.json();
 }
 
+async function fetchJson(url, headers) {
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function () {
+    controller.abort();
+  }, ST.DEFAULTS.REQUEST_TIMEOUT_MS);
+
+  var res;
+  try {
+    res = await fetch(url, {
+      method: 'GET',
+      headers: headers || {},
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!res.ok) {
+    throw new Error('Provider API ' + res.status);
+  }
+
+  return await res.json();
+}
+
 function normalizeOpenAIBaseUrl(baseUrl) {
   return String(baseUrl || '')
     .replace(/\/+$/, '')
@@ -519,6 +590,12 @@ function normalizeOllamaBaseUrl(baseUrl) {
   var value = String(baseUrl || 'http://127.0.0.1:11434').replace(/\/+$/, '');
   if (/\/api\/generate$/.test(value)) return value;
   return value + '/api/generate';
+}
+
+function normalizeOllamaTagsUrl(baseUrl) {
+  var value = String(baseUrl || 'http://127.0.0.1:11434').replace(/\/+$/, '');
+  value = value.replace(/\/api\/(generate|chat|tags)$/, '');
+  return value + '/api/tags';
 }
 
 function broadcastSettings(_partial, tabId) {

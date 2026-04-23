@@ -65,6 +65,10 @@
           <div class="field-group field-span-2 provider-field" id="providerModelGroup">
             <label class="field-label" for="providerModelInput">Model</label>
             <input id="providerModelInput" class="text-field" type="text" placeholder="gpt-4.1-mini">
+            <select id="providerModelSelect" class="select-field" hidden>
+              <option value="">載入模型清單中...</option>
+            </select>
+            <p class="field-hint" id="providerModelHint">輸入要使用的模型名稱。</p>
           </div>
           <div class="field-group field-span-2 provider-field" id="providerApiKeyGroup">
             <label class="field-label" for="providerApiKeyInput">API Key</label>
