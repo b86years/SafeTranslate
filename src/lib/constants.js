@@ -45,6 +45,7 @@
 
     STORAGE_LOCAL: Object.freeze({
       PROVIDER_API_KEY: 'providerApiKey',
+      SETTINGS_JSON: 'settingsJson',
     }),
 
     PROVIDERS: Object.freeze({

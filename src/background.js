@@ -642,7 +642,14 @@ function updateSettings(payload, tabId) {
     tasks.push(storageLocalSet(split.local));
   }
 
-  return Promise.all(tasks).then(function () {
+  return Promise.all(tasks)
+    .then(function () {
+      return loadSettingsBundle();
+    })
+    .then(function (bundle) {
+      return writeLocalSettingsJsonSnapshot(bundle);
+    })
+    .then(function () {
     var broadcastPayload = Object.assign({}, split.sync);
     if (Object.prototype.hasOwnProperty.call(split.local, ST.STORAGE_LOCAL.PROVIDER_API_KEY)) {
       broadcastPayload.hasProviderApiKey = Boolean(
@@ -650,7 +657,7 @@ function updateSettings(payload, tabId) {
       );
     }
     broadcastSettings(broadcastPayload, tabId);
-  });
+    });
 }
 
 function splitSettingsPayload(payload) {
@@ -891,6 +898,7 @@ function loadSettingsBundle() {
     storageSyncGet(null),
     storageLocalGet({
       providerApiKey: '',
+      settingsJson: '',
     }),
   ]).then(function (results) {
     return {
@@ -939,6 +947,25 @@ function storageLocalSet(payload) {
     });
   });
 }
+
+function writeLocalSettingsJsonSnapshot(bundle) {
+  var settings = siteConfig.readSettings((bundle && bundle.sync) || {});
+
+  settings.providerApiKey =
+    bundle && bundle.local
+      ? bundle.local[ST.STORAGE_LOCAL.PROVIDER_API_KEY] || ''
+      : '';
+
+  return storageLocalSet({
+    [ST.STORAGE_LOCAL.SETTINGS_JSON]: JSON.stringify(
+      ignoreTermsHelper.createSettingsBackup(settings)
+    ),
+  });
+}
+
+loadSettingsBundle()
+  .then(writeLocalSettingsJsonSnapshot)
+  .catch(noop);
 
 function sendMessageToTab(tabId, message) {
   return new Promise(function (resolve, reject) {
