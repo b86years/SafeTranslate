@@ -9,6 +9,8 @@ var ST = globalThis.__SAFE_TRANSLATE__;
 var ignoreTermsHelper = globalThis.__SAFE_TRANSLATE_IGNORE_TERMS__;
 var siteConfig = globalThis.__SAFE_TRANSLATE_SITE_CONFIG__;
 
+function noop() {}
+
 // ──────────────────────────────────────────────
 // Per-tab state
 // ──────────────────────────────────────────────
