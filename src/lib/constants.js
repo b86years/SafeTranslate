@@ -28,6 +28,8 @@
       SETTINGS_UPDATED: 'settingsUpdated',
       AUTO_TRANSLATE_PAGE: 'autoTranslatePage',
       RESOLVE_SELECTION_ORIGINAL: 'resolveSelectionOriginal',
+      EXPORT_SETTINGS_JSON: 'exportSettingsJson',
+      IMPORT_SETTINGS_JSON: 'importSettingsJson',
     }),
 
     // Chrome storage keys

@@ -460,6 +460,34 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         });
       return true;
 
+    case ST.MESSAGES.EXPORT_SETTINGS_JSON:
+      exportSettingsJson()
+        .then(function (payload) {
+          sendResponse({ ok: true, json: payload.json, fileName: payload.fileName });
+        })
+        .catch(function (error) {
+          sendResponse({
+            ok: false,
+            error: true,
+            message: error && error.message ? error.message : 'Failed to export settings JSON',
+          });
+        });
+      return true;
+
+    case ST.MESSAGES.IMPORT_SETTINGS_JSON:
+      importSettingsJson(msg.payload || {}, msg.tabId || tabId)
+        .then(function (settings) {
+          sendResponse({ ok: true, settings: settings });
+        })
+        .catch(function (error) {
+          sendResponse({
+            ok: false,
+            error: true,
+            message: error && error.message ? error.message : 'Failed to import settings JSON',
+          });
+        });
+      return true;
+
     case ST.MESSAGES.GET_TAB_ACTIVITY:
       sendResponse(getTabActivity(msg.tabId || tabId));
       return true;
@@ -960,6 +988,50 @@ function writeLocalSettingsJsonSnapshot(bundle) {
     [ST.STORAGE_LOCAL.SETTINGS_JSON]: JSON.stringify(
       ignoreTermsHelper.createSettingsBackup(settings)
     ),
+  });
+}
+
+function exportSettingsJson() {
+  return loadSettingsBundle().then(function (bundle) {
+    var settings = siteConfig.readSettings(bundle.sync || {});
+    var snapshot;
+
+    settings.providerApiKey = bundle.local[ST.STORAGE_LOCAL.PROVIDER_API_KEY] || '';
+    snapshot = ignoreTermsHelper.createSettingsBackup(settings);
+
+    return {
+      json: JSON.stringify(snapshot, null, 2),
+      fileName: 'safe-translate-settings-' + new Date().toISOString().slice(0, 10) + '.json',
+    };
+  });
+}
+
+function importSettingsJson(payload, tabId) {
+  var rawJson = payload && payload.json ? payload.json : '';
+  var parsed;
+  var imported;
+
+  if (!rawJson) {
+    return Promise.reject(new Error('JSON 內容不能為空'));
+  }
+
+  try {
+    parsed = JSON.parse(rawJson);
+    imported = ignoreTermsHelper.normalizeImportedSettings(parsed);
+  } catch (error) {
+    return Promise.reject(
+      new Error(error && error.message ? error.message : 'JSON 格式不正確')
+    );
+  }
+
+  return updateSettings(imported, tabId).then(function () {
+    return loadSettingsBundle().then(function (bundle) {
+      var settings = siteConfig.readSettings(bundle.sync || {});
+
+      settings.providerApiKey = bundle.local[ST.STORAGE_LOCAL.PROVIDER_API_KEY] || '';
+      settings.hasProviderApiKey = Boolean(settings.providerApiKey);
+      return settings;
+    });
   });
 }
 

@@ -43,6 +43,9 @@
   var $providerStatusDetail = document.getElementById('providerStatusDetail');
   var $providerCheckButton = document.getElementById('providerCheckButton');
   var $ignoreTermsInput = document.getElementById('ignoreTermsInput');
+  var $importSettingsButton = document.getElementById('importSettingsButton');
+  var $exportSettingsButton = document.getElementById('exportSettingsButton');
+  var $settingsImportInput = document.getElementById('settingsImportInput');
   var $settingsJsonStatus = document.getElementById('settingsJsonStatus');
   var $siteHost = document.getElementById('siteHost');
   var $siteModeSelect = document.getElementById('siteModeSelect');
@@ -149,6 +152,18 @@
   $ignoreTermsInput.addEventListener('change', persistIgnoreTermsFromInput);
   $ignoreTermsInput.addEventListener('blur', persistIgnoreTermsFromInput);
 
+  $exportSettingsButton.addEventListener('click', function () {
+    exportSettingsAsJson();
+  });
+
+  $importSettingsButton.addEventListener('click', function () {
+    $settingsImportInput.click();
+  });
+
+  $settingsImportInput.addEventListener('change', function () {
+    importSettingsFromSelectedFile();
+  });
+
   $siteModeSelect.addEventListener('change', function () {
     if (!activeTab || !currentSettings) return;
 
@@ -251,6 +266,88 @@
 
     showSettingsJsonStatus('已更新不翻譯詞彙清單，本機 JSON 快照也已同步。', 'success');
     persist({ ignoreTerms: normalized });
+  }
+
+  function exportSettingsAsJson() {
+    chrome.runtime.sendMessage(
+      { type: ST.MESSAGES.EXPORT_SETTINGS_JSON },
+      function (response) {
+        var blob;
+        var url;
+        var link;
+
+        if (chrome.runtime.lastError) {
+          showSettingsJsonStatus(chrome.runtime.lastError.message, 'error');
+          return;
+        }
+
+        if (!response || response.ok === false || !response.json) {
+          showSettingsJsonStatus(
+            response && response.message ? response.message : '匯出 JSON 失敗。',
+            'error'
+          );
+          return;
+        }
+
+        blob = new Blob([response.json], { type: 'application/json' });
+        url = URL.createObjectURL(blob);
+        link = document.createElement('a');
+        link.href = url;
+        link.download = response.fileName || 'safe-translate-settings.json';
+        link.click();
+
+        setTimeout(function () {
+          URL.revokeObjectURL(url);
+        }, 0);
+
+        showSettingsJsonStatus('已匯出 JSON 設定檔。', 'success');
+      }
+    );
+  }
+
+  function importSettingsFromSelectedFile() {
+    var file = $settingsImportInput.files && $settingsImportInput.files[0];
+    var reader;
+
+    if (!file) return;
+
+    reader = new FileReader();
+    reader.onload = function () {
+      chrome.runtime.sendMessage(
+        {
+          type: ST.MESSAGES.IMPORT_SETTINGS_JSON,
+          payload: {
+            json: String(reader.result || ''),
+          },
+          tabId: activeTab ? activeTab.id : null,
+        },
+        function (response) {
+          if (chrome.runtime.lastError) {
+            showSettingsJsonStatus(chrome.runtime.lastError.message, 'error');
+            $settingsImportInput.value = '';
+            return;
+          }
+
+          if (!response || response.ok === false || !response.settings) {
+            showSettingsJsonStatus(
+              response && response.message ? response.message : '匯入 JSON 失敗。',
+              'error'
+            );
+            $settingsImportInput.value = '';
+            return;
+          }
+
+          applyLoadedSettings(response.settings);
+          showSettingsJsonStatus('已從 JSON 匯入設定，並同步更新本機快照。', 'success');
+          $settingsImportInput.value = '';
+        }
+      );
+    };
+    reader.onerror = function () {
+      showSettingsJsonStatus('讀取檔案失敗。', 'error');
+      $settingsImportInput.value = '';
+    };
+    reader.readAsText(file, 'utf-8');
   }
 
   function showSettingsJsonStatus(message, tone) {

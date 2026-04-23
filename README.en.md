@@ -25,7 +25,7 @@ The project is focused on one goal: provide a stable, observable, and overrideab
 - Translation providers for Google Translate, OpenRouter, OpenAI-compatible APIs, and Ollama
 - Target language selection, automatic page translation, plus per-site always-translate and never-translate policies
 - Case-insensitive no-translate term list with manual editing support
-- Automatic local JSON snapshot of the full settings state, without manual export/import
+- Automatic local JSON snapshot of the full settings state, plus manual export/import when needed
 - Built-in diagnostics for detection reasons, fallback counts, and last handled errors
 - Background service worker for tab state, context menus, and translation caching
 
@@ -59,6 +59,7 @@ After installation, click the SafeTranslate toolbar icon to open the popup.
 - Toggle automatic translation for visible page content
 - Maintain a no-translate term list in the popup, one term per line, with case-insensitive matching
 - Settings changes are automatically written to a local JSON snapshot for long-term persistence
+- You can also export or import the same JSON format directly from the popup for backup or migration
 - `patchOnly` is the recommended default
 - `blockAndTooltip` blocks Chrome translation and uses a safe tooltip-based translation flow
 - You can set both a site policy and a per-site always-translate or never-translate rule, and site-level overrides take priority over the global mode and global auto-translate setting
