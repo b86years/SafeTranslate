@@ -231,6 +231,13 @@
       return;
     }
 
+    setBuiltInAiStatus(
+      'checking',
+      '正在檢查 Chrome 內建 AI 是否可用。',
+      langs.sourceLanguage,
+      langs.targetLanguage
+    );
+
     try {
       var availability = await Translator.availability({
         sourceLanguage: langs.sourceLanguage,

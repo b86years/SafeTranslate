@@ -45,6 +45,7 @@
   var activeTab = null;
   var currentSettings = null;
   var currentPageState = null;
+  var pageStatePollId = 0;
 
   // ── Load current-tab status ──
 
@@ -53,6 +54,7 @@
     activeTab = tabs[0];
     $siteHost.textContent = siteConfig.normalizeHost(activeTab.url) || '無法辨識';
     refreshPageState();
+    startPageStatePolling();
   });
 
   // ── Load settings ──
@@ -82,6 +84,7 @@
   });
 
   $footerVersion.textContent = 'v' + ST.VERSION;
+  window.addEventListener('unload', stopPageStatePolling);
 
   // ── Event bindings ──
 
@@ -244,6 +247,19 @@
     );
   }
 
+  function startPageStatePolling() {
+    stopPageStatePolling();
+    pageStatePollId = setInterval(function () {
+      refreshPageState();
+    }, 1200);
+  }
+
+  function stopPageStatePolling() {
+    if (!pageStatePollId) return;
+    clearInterval(pageStatePollId);
+    pageStatePollId = 0;
+  }
+
   function renderSiteMode() {
     if (!activeTab || !currentSettings) return;
     var resolved = siteConfig.resolveSiteSettings(activeTab.url, {
@@ -313,12 +329,13 @@
       return { tone: 'ready', label: '已就緒' };
     }
     if (
+      status === 'checking' ||
       status === 'waiting-activation' ||
       status === 'downloadable' ||
       status === 'downloading' ||
       status === 'waiting-language'
     ) {
-      return { tone: 'warn', label: '待準備' };
+      return { tone: 'warn', label: status === 'checking' ? '檢查中' : '待準備' };
     }
     if (status === 'inactive') {
       return { tone: 'idle', label: '未使用' };
