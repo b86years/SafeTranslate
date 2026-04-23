@@ -41,6 +41,7 @@
   var contentObserver = null;
   var AUTO_TRANSLATE_CONCURRENCY = 6;
   var BUILT_IN_AUTO_TRANSLATE_CONCURRENCY = 3;
+  var CANDIDATE_SCAN_LIMIT = 400;
   var builtInAiStatus = createBuiltInAiStatus(
     'idle',
     '點擊檢查',
@@ -302,7 +303,7 @@
   function collectCandidateTextNodes(limit) {
     if (!document.body) return [];
 
-    var nodes = [];
+    var candidates = [];
     var walker = document.createTreeWalker(
       document.body,
       NodeFilter.SHOW_TEXT,
@@ -315,11 +316,20 @@
       }
     );
 
-    while (walker.nextNode() && nodes.length < limit) {
-      nodes.push(walker.currentNode);
+    while (walker.nextNode() && candidates.length < CANDIDATE_SCAN_LIMIT) {
+      candidates.push({
+        node: walker.currentNode,
+        distance: getNodeViewportDistance(walker.currentNode),
+      });
     }
 
-    return nodes;
+    candidates.sort(function (left, right) {
+      return left.distance - right.distance;
+    });
+
+    return candidates.slice(0, limit).map(function (entry) {
+      return entry.node;
+    });
   }
 
   function isTranslatableTextNode(node) {
@@ -331,6 +341,9 @@
 
     var parent = node.parentElement;
     if (!parent.isConnected) return false;
+    if (translatedTargetByNode.get(node) === currentResolvedSettings.targetLanguage) {
+      return false;
+    }
     if (parent.closest('#safe-translate-tooltip')) return false;
     if (parent.closest('[data-safe-translate-skip="1"]')) return false;
     if (parent.closest('script, style, noscript, textarea, input, select, option, button, code, pre')) {
@@ -340,6 +353,25 @@
     if (parent.getClientRects().length === 0) return false;
 
     return true;
+  }
+
+  function getNodeViewportDistance(node) {
+    if (!node || !node.parentElement) return Number.MAX_SAFE_INTEGER;
+
+    var rect = node.parentElement.getBoundingClientRect();
+    var viewportTop = 0;
+    var viewportBottom = window.innerHeight || document.documentElement.clientHeight || 0;
+    var margin = 200;
+
+    if (rect.bottom >= viewportTop - margin && rect.top <= viewportBottom + margin) {
+      return 0;
+    }
+
+    if (rect.top > viewportBottom) {
+      return rect.top - viewportBottom;
+    }
+
+    return viewportTop - rect.bottom;
   }
 
   async function translateNode(node, snapshot) {
@@ -825,6 +857,13 @@
   });
 
   document.addEventListener('scroll', hideTooltip, { passive: true });
+  document.addEventListener(
+    'scroll',
+    function () {
+      scheduleAutoTranslate('scroll');
+    },
+    { passive: true }
+  );
 
   document.addEventListener('click', function (e) {
     if (tooltipHost && !tooltipHost.contains(e.target)) hideTooltip();
