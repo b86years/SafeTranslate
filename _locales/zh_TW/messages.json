@@ -10,5 +10,9 @@
   "contextMenuTranslate": {
     "message": "安全翻譯選取文字",
     "description": "右鍵選單項目標籤"
+  },
+  "contextMenuIgnoreTerm": {
+    "message": "加入不翻譯詞彙",
+    "description": "右鍵選單加入不翻譯詞彙"
   }
 }

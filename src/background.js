@@ -3,9 +3,10 @@
  * Manages per-tab state, handles translation API calls,
  * and coordinates popup ↔ content-script communication.
  */
-importScripts('lib/constants.js', 'lib/site-config.js');
+importScripts('lib/constants.js', 'lib/ignore-terms.js', 'lib/site-config.js');
 
 var ST = globalThis.__SAFE_TRANSLATE__;
+var ignoreTermsHelper = globalThis.__SAFE_TRANSLATE_IGNORE_TERMS__;
 var siteConfig = globalThis.__SAFE_TRANSLATE_SITE_CONFIG__;
 
 // ──────────────────────────────────────────────
@@ -531,10 +532,24 @@ async function translate(payload, tabId) {
   );
   var providerModel = payload.model || resolved.providerModel || ST.DEFAULTS.PROVIDER_MODEL;
   var sourceLanguage = payload.sourceLanguage || 'auto';
-  var key = [provider, providerBaseUrl, providerModel, sourceLanguage, lang, text].join('\t');
+  var ignoreTerms = ignoreTermsHelper.normalizeIgnoreTerms(
+    payload.ignoreTerms || resolved.ignoreTerms || []
+  );
+  var masking = ignoreTermsHelper.maskTextWithIgnoreTerms(text, ignoreTerms);
+  var maskedText = masking.text;
+  var preservedValuesKey = masking.placeholders
+    .map(function (entry) {
+      return entry.value;
+    })
+    .join('\u0001');
+  var key = [provider, providerBaseUrl, providerModel, sourceLanguage, lang, maskedText, preservedValuesKey].join('\t');
 
   if (!text) {
     return { translated: null, error: true, message: 'No text to translate' };
+  }
+
+  if (!maskedText.replace(/__SAFE_TRANSLATE_KEEP_\d+__/g, ' ').trim()) {
+    return { translated: text, provider: provider, skipped: true };
   }
 
   // LRU cache hit → move to end
@@ -556,13 +571,13 @@ async function translate(payload, tabId) {
 
     if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
       result = await translateWithGoogleTranslate({
-        text: text,
+        text: maskedText,
         sourceLanguage: sourceLanguage,
         targetLang: lang,
       });
     } else if (provider === ST.PROVIDERS.OPENROUTER) {
       result = await translateWithOpenRouter({
-        text: text,
+        text: maskedText,
         sourceLanguage: sourceLanguage,
         targetLang: lang,
         baseUrl: providerBaseUrl,
@@ -571,7 +586,7 @@ async function translate(payload, tabId) {
       });
     } else if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
       result = await translateWithOpenAICompatible({
-        text: text,
+        text: maskedText,
         sourceLanguage: sourceLanguage,
         targetLang: lang,
         baseUrl: providerBaseUrl,
@@ -580,7 +595,7 @@ async function translate(payload, tabId) {
       });
     } else if (provider === ST.PROVIDERS.OLLAMA) {
       result = await translateWithOllama({
-        text: text,
+        text: maskedText,
         sourceLanguage: sourceLanguage,
         targetLang: lang,
         baseUrl: providerBaseUrl,
@@ -591,6 +606,11 @@ async function translate(payload, tabId) {
     }
 
     if (result && result.translated) {
+      result.translated = ignoreTermsHelper.restoreMaskedTerms(
+        result.translated,
+        masking.placeholders
+      );
+
       if (cache.size >= CACHE_LIMIT) {
         cache.delete(cache.keys().next().value);
       }
@@ -653,41 +673,208 @@ function splitSettingsPayload(payload) {
 // ──────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(function () {
-  chrome.contextMenus.create({
-    id: 'safe-translate-selection',
-    title: chrome.i18n.getMessage('contextMenuTranslate') || '安全翻譯選取文字',
-    contexts: ['selection'],
-  });
+  createContextMenus();
 });
+
+chrome.runtime.onStartup.addListener(function () {
+  createContextMenus();
+});
+
+function createContextMenus() {
+  chrome.contextMenus.removeAll(function () {
+    chrome.contextMenus.create({
+      id: 'safe-translate-selection',
+      title: chrome.i18n.getMessage('contextMenuTranslate') || '安全翻譯選取文字',
+      contexts: ['selection'],
+    });
+    chrome.contextMenus.create({
+      id: 'safe-translate-ignore-term',
+      title: chrome.i18n.getMessage('contextMenuIgnoreTerm') || '加入不翻譯詞彙',
+      contexts: ['selection'],
+    });
+  });
+}
 
 chrome.contextMenus.onClicked.addListener(function (info, tab) {
-  if (
-    info.menuItemId === 'safe-translate-selection' &&
-    info.selectionText &&
-    tab &&
-    tab.id
-  ) {
-    chrome.storage.sync.get(null, function (raw) {
-      var resolved = siteConfig.resolveSiteSettings(tab.url || '', raw);
-      var anchor = getTabState(tab.id).selectionAnchor;
+  if (!info.selectionText || !tab || !tab.id) {
+    return;
+  }
 
-      translate({
-        text: info.selectionText,
-        targetLang: resolved.targetLanguage,
-        url: tab.url || '',
-      }, tab.id).then(function (result) {
-        if (result.translated) {
-          chrome.tabs.sendMessage(tab.id, {
-            type: 'showTranslation',
-            text: result.translated,
-            x: anchor && anchor.x ? anchor.x : 100,
-            y: anchor && anchor.y ? anchor.y : 100,
-          });
-        }
-      });
-    });
+  if (info.menuItemId === 'safe-translate-selection') {
+    void handleSelectionTranslation(info, tab);
+    return;
+  }
+
+  if (info.menuItemId === 'safe-translate-ignore-term') {
+    void handleAddIgnoreTerm(info, tab);
   }
 });
+
+async function handleSelectionTranslation(info, tab) {
+  var raw = await storageSyncGet(null);
+  var resolved = siteConfig.resolveSiteSettings(tab.url || '', raw);
+  var anchor = await resolveSelectionAnchor(tab.id, info.selectionText);
+  var result = await translate(
+    {
+      text: info.selectionText,
+      targetLang: resolved.targetLanguage,
+      url: tab.url || '',
+    },
+    tab.id
+  );
+
+  if (!result || !result.translated) {
+    return;
+  }
+
+  chrome.tabs.sendMessage(tab.id, {
+    type: 'showTranslation',
+    text: result.translated,
+    x: anchor && anchor.x ? anchor.x : 100,
+    y: anchor && anchor.y ? anchor.y : 100,
+  });
+}
+
+async function handleAddIgnoreTerm(info, tab) {
+  var raw = await storageSyncGet(null);
+  var resolved = siteConfig.resolveSiteSettings(tab.url || '', raw);
+  var selectionDetails = await resolveSelectionAnchor(tab.id, info.selectionText);
+  var nextTerm = await resolveIgnoreTermCandidate(
+    info.selectionText,
+    selectionDetails,
+    resolved,
+    tab
+  );
+  var normalizedTerm = ignoreTermsHelper.normalizeIgnoreTerm(nextTerm);
+  var currentTerms = ignoreTermsHelper.normalizeIgnoreTerms(resolved.ignoreTerms || []);
+  var alreadyExists = hasIgnoreTerm(currentTerms, normalizedTerm);
+  var anchor = selectionDetails || getTabState(tab.id).selectionAnchor;
+
+  if (!normalizedTerm) {
+    await notifySelectionAction(tab.id, anchor, '找不到可加入的詞彙', 'SafeTranslate');
+    return;
+  }
+
+  if (!alreadyExists) {
+    await updateSettings(
+      {
+        ignoreTerms: currentTerms.concat([normalizedTerm]),
+      },
+      tab.id
+    );
+  }
+
+  await notifySelectionAction(
+    tab.id,
+    anchor,
+    alreadyExists
+      ? '此詞彙已在不翻譯清單中：' + normalizedTerm
+      : '已加入不翻譯詞彙：' + normalizedTerm,
+    alreadyExists ? '詞彙已存在' : 'SafeTranslate'
+  );
+}
+
+async function resolveIgnoreTermCandidate(selectionText, selectionDetails, resolved, tab) {
+  var directOriginalText = selectionDetails && selectionDetails.directOriginalText
+    ? ignoreTermsHelper.normalizeIgnoreTerm(selectionDetails.directOriginalText)
+    : '';
+  var selectedText = selectionDetails && selectionDetails.selectedText
+    ? selectionDetails.selectedText
+    : String(selectionText || '').trim();
+  var sourceLanguage = selectionDetails && selectionDetails.sourceLanguage
+    ? selectionDetails.sourceLanguage
+    : '';
+  var selectedFromTranslatedNode = Boolean(
+    selectionDetails && selectionDetails.selectedFromTranslatedNode
+  );
+
+  if (directOriginalText) {
+    return directOriginalText;
+  }
+
+  if (
+    selectedFromTranslatedNode &&
+    sourceLanguage &&
+    sourceLanguage !== 'auto' &&
+    !sameLanguage(sourceLanguage, resolved.targetLanguage)
+  ) {
+    try {
+      var reverseResult = await translate(
+        {
+          text: selectedText,
+          sourceLanguage: resolved.targetLanguage,
+          targetLang: sourceLanguage,
+          provider: resolved.translationProvider,
+          baseUrl: resolved.providerBaseUrl,
+          model: resolved.providerModel,
+          url: tab.url || '',
+          ignoreTerms: [],
+        },
+        tab.id
+      );
+
+      if (reverseResult && reverseResult.translated) {
+        return reverseResult.translated;
+      }
+    } catch (_) {
+      return selectedText;
+    }
+  }
+
+  return selectedText;
+}
+
+function hasIgnoreTerm(terms, nextTerm) {
+  var normalizedNext = String(nextTerm || '').toLocaleLowerCase();
+
+  if (!normalizedNext) return false;
+
+  for (var i = 0; i < terms.length; i++) {
+    if (String(terms[i] || '').toLocaleLowerCase() === normalizedNext) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function resolveSelectionAnchor(tabId, selectionText) {
+  var cached = getTabState(tabId).selectionAnchor;
+  var normalizedSelection = normalizeSelectionText(selectionText);
+
+  if (
+    cached &&
+    normalizeSelectionText(cached.text) === normalizedSelection
+  ) {
+    return cached;
+  }
+
+  try {
+    return await sendMessageToTab(tabId, {
+      type: ST.MESSAGES.RESOLVE_SELECTION_ORIGINAL,
+    });
+  } catch (_) {
+    return cached || null;
+  }
+}
+
+function normalizeSelectionText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+async function notifySelectionAction(tabId, anchor, text, sourceLabel) {
+  try {
+    await sendMessageToTab(tabId, {
+      type: 'showNotice',
+      text: text,
+      sourceLabel: sourceLabel || 'SafeTranslate',
+      x: anchor && anchor.x ? anchor.x : 100,
+      y: anchor && anchor.y ? anchor.y : 100,
+    });
+  } catch (_) {
+    // Ignore transient tab messaging failures.
+  }
+}
 
 // ──────────────────────────────────────────────
 // Helpers
@@ -1386,6 +1573,36 @@ function getProviderBaseUrl(provider, configuredBaseUrl) {
   }
 
   return String(configuredBaseUrl || '').trim();
+}
+
+function normalizeLanguageTag(value) {
+  var raw = String(value || '').trim();
+  var lower;
+  var parts;
+
+  if (!raw) return '';
+
+  lower = raw.toLowerCase();
+  if (lower === 'zh-tw' || lower === 'zh-hk' || lower === 'zh-mo') {
+    return 'zh-Hant';
+  }
+  if (lower === 'zh-cn' || lower === 'zh-sg') {
+    return 'zh';
+  }
+  if (lower === 'he') {
+    return 'iw';
+  }
+
+  parts = raw.split('-');
+  if (parts.length === 1) {
+    return parts[0];
+  }
+
+  return parts[0];
+}
+
+function sameLanguage(sourceLanguage, targetLanguage) {
+  return normalizeLanguageTag(sourceLanguage) === normalizeLanguageTag(targetLanguage);
 }
 
 function normalizeOpenAIBaseUrl(baseUrl) {

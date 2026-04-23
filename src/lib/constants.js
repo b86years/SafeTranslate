@@ -7,7 +7,7 @@
   'use strict';
 
   var SAFE_TRANSLATE = Object.freeze({
-    VERSION: '1.2.0',
+    VERSION: '1.3.0',
 
     // Custom DOM events for MAIN ↔ ISOLATED world communication
     EVENTS: Object.freeze({
@@ -27,6 +27,7 @@
       GET_PAGE_STATE: 'getPageState',
       SETTINGS_UPDATED: 'settingsUpdated',
       AUTO_TRANSLATE_PAGE: 'autoTranslatePage',
+      RESOLVE_SELECTION_ORIGINAL: 'resolveSelectionOriginal',
     }),
 
     // Chrome storage keys
@@ -39,6 +40,7 @@
       PROVIDER_BASE_URL: 'providerBaseUrl',
       PROVIDER_MODEL: 'providerModel',
       SITE_OVERRIDES: 'siteOverrides',
+      IGNORE_TERMS: 'ignoreTerms',
     }),
 
     STORAGE_LOCAL: Object.freeze({

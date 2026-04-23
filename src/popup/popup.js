@@ -7,8 +7,10 @@
   'use strict';
 
   var ST = globalThis.__SAFE_TRANSLATE__;
+  var ignoreTermsHelper = globalThis.__SAFE_TRANSLATE_IGNORE_TERMS__;
   var siteConfig = globalThis.__SAFE_TRANSLATE_SITE_CONFIG__;
   if (!ST) return;
+  if (!ignoreTermsHelper) return;
   if (!siteConfig) return;
 
   // ── DOM refs ──
@@ -40,6 +42,11 @@
   var $providerStatusLabel = document.getElementById('providerStatusLabel');
   var $providerStatusDetail = document.getElementById('providerStatusDetail');
   var $providerCheckButton = document.getElementById('providerCheckButton');
+  var $ignoreTermsInput = document.getElementById('ignoreTermsInput');
+  var $importSettingsButton = document.getElementById('importSettingsButton');
+  var $exportSettingsButton = document.getElementById('exportSettingsButton');
+  var $settingsImportInput = document.getElementById('settingsImportInput');
+  var $settingsJsonStatus = document.getElementById('settingsJsonStatus');
   var $siteHost = document.getElementById('siteHost');
   var $siteModeSelect = document.getElementById('siteModeSelect');
   var $siteTranslationSelect = document.getElementById('siteTranslationSelect');
@@ -74,18 +81,7 @@
     { type: ST.MESSAGES.GET_SETTINGS },
     function (s) {
       if (!s) return;
-      currentSettings = s;
-      $toggle.checked = s.globalEnabled;
-      selectMode(s.protectionMode);
-      $targetLanguageSelect.value = s.targetLanguage || ST.DEFAULTS.TARGET_LANGUAGE;
-      $providerSelect.value = s.translationProvider || ST.DEFAULTS.TRANSLATION_PROVIDER;
-      $providerBaseUrlInput.value = s.providerBaseUrl || '';
-      $providerModelInput.value = s.providerModel || '';
-      $providerApiKeyInput.value = s.providerApiKey || '';
-      $autoTranslateToggle.checked = s.autoTranslatePage !== false;
-      renderProviderFields();
-      renderSiteMode();
-      renderProviderStatus(null);
+      applyLoadedSettings(s);
     }
   );
 
@@ -153,6 +149,21 @@
     checkSelectedProviderStatus();
   });
 
+  $ignoreTermsInput.addEventListener('change', persistIgnoreTermsFromInput);
+  $ignoreTermsInput.addEventListener('blur', persistIgnoreTermsFromInput);
+
+  $exportSettingsButton.addEventListener('click', function () {
+    exportSettingsAsJson();
+  });
+
+  $importSettingsButton.addEventListener('click', function () {
+    $settingsImportInput.click();
+  });
+
+  $settingsImportInput.addEventListener('change', function () {
+    importSettingsFromSelectedFile();
+  });
+
   $siteModeSelect.addEventListener('change', function () {
     if (!activeTab || !currentSettings) return;
 
@@ -206,6 +217,10 @@
     if (partial.globalEnabled !== undefined && currentSettings) {
       currentSettings.globalEnabled = partial.globalEnabled;
     }
+    if (partial.ignoreTerms !== undefined && currentSettings) {
+      currentSettings.ignoreTerms = ignoreTermsHelper.normalizeIgnoreTerms(partial.ignoreTerms);
+      $ignoreTermsInput.value = ignoreTermsHelper.formatIgnoreTerms(currentSettings.ignoreTerms);
+    }
 
     chrome.runtime.sendMessage({
       type: ST.MESSAGES.UPDATE_SETTINGS,
@@ -220,6 +235,109 @@
       partial.translationProvider !== undefined
     ) {
       renderProviderStatus(null);
+    }
+  }
+
+  function applyLoadedSettings(settings) {
+    currentSettings = settings;
+    $toggle.checked = settings.globalEnabled;
+    selectMode(settings.protectionMode);
+    $targetLanguageSelect.value = settings.targetLanguage || ST.DEFAULTS.TARGET_LANGUAGE;
+    $providerSelect.value = settings.translationProvider || ST.DEFAULTS.TRANSLATION_PROVIDER;
+    $providerBaseUrlInput.value = settings.providerBaseUrl || '';
+    $providerModelInput.value = settings.providerModel || '';
+    $providerApiKeyInput.value = settings.providerApiKey || '';
+    $autoTranslateToggle.checked = settings.autoTranslatePage !== false;
+    $ignoreTermsInput.value = ignoreTermsHelper.formatIgnoreTerms(settings.ignoreTerms || []);
+    renderProviderFields();
+    renderSiteMode();
+    renderProviderStatus(null);
+  }
+
+  function persistIgnoreTermsFromInput() {
+    if (!currentSettings) return;
+
+    var normalized = ignoreTermsHelper.normalizeIgnoreTerms($ignoreTermsInput.value);
+    var formatted = ignoreTermsHelper.formatIgnoreTerms(normalized);
+
+    if ($ignoreTermsInput.value !== formatted) {
+      $ignoreTermsInput.value = formatted;
+    }
+
+    showSettingsJsonStatus('已更新不翻譯詞彙清單。', 'success');
+    persist({ ignoreTerms: normalized });
+  }
+
+  function exportSettingsAsJson() {
+    var backup;
+    var blob;
+    var url;
+    var link;
+    var stamp;
+
+    if (!currentSettings) {
+      showSettingsJsonStatus('設定尚未載入完成。', 'error');
+      return;
+    }
+
+    backup = ignoreTermsHelper.createSettingsBackup(currentSettings);
+    blob = new Blob([JSON.stringify(backup, null, 2)], {
+      type: 'application/json',
+    });
+    url = URL.createObjectURL(blob);
+    link = document.createElement('a');
+    stamp = new Date().toISOString().slice(0, 10);
+
+    link.href = url;
+    link.download = 'safe-translate-settings-' + stamp + '.json';
+    link.click();
+
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 0);
+
+    showSettingsJsonStatus('已匯出 JSON 設定檔。', 'success');
+  }
+
+  function importSettingsFromSelectedFile() {
+    var file = $settingsImportInput.files && $settingsImportInput.files[0];
+    var reader;
+
+    if (!file) return;
+
+    reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var parsed = JSON.parse(String(reader.result || '{}'));
+        var imported = ignoreTermsHelper.normalizeImportedSettings(parsed);
+        var normalized = siteConfig.readSettings(imported);
+
+        normalized.providerApiKey = imported.providerApiKey || '';
+        applyLoadedSettings(normalized);
+        persist(normalized);
+        showSettingsJsonStatus('已從 JSON 匯入設定。', 'success');
+      } catch (error) {
+        showSettingsJsonStatus(
+          error && error.message ? error.message : '匯入失敗，請確認 JSON 格式。',
+          'error'
+        );
+      } finally {
+        $settingsImportInput.value = '';
+      }
+    };
+    reader.onerror = function () {
+      showSettingsJsonStatus('讀取檔案失敗。', 'error');
+      $settingsImportInput.value = '';
+    };
+    reader.readAsText(file, 'utf-8');
+  }
+
+  function showSettingsJsonStatus(message, tone) {
+    $settingsJsonStatus.textContent = message;
+    $settingsJsonStatus.classList.remove('error', 'success');
+
+    if (tone) {
+      $settingsJsonStatus.classList.add(tone);
     }
   }
 

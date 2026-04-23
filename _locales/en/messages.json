@@ -10,5 +10,9 @@
   "contextMenuTranslate": {
     "message": "Translate selection safely",
     "description": "Context menu item label"
+  },
+  "contextMenuIgnoreTerm": {
+    "message": "Add to no-translate terms",
+    "description": "Context menu item for adding a no-translate term"
   }
 }

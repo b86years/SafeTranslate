@@ -121,6 +121,28 @@
       </div>
     </section>
 
+    <section class="section">
+      <h2>不翻譯詞彙</h2>
+      <div class="panel settings-panel">
+        <div class="field-group field-span-2">
+          <label class="field-label" for="ignoreTermsInput">詞彙清單</label>
+          <textarea
+            id="ignoreTermsInput"
+            class="text-field textarea-field"
+            rows="5"
+            placeholder="一行一個詞彙，例如:\nOpenAI\nTypeScript\nSafeTranslate"
+          ></textarea>
+          <p class="field-hint">大小寫不分。頁面上選取文字後按右鍵，也能直接加入不翻譯詞彙；若當前畫面已翻成中文，會優先嘗試反推回原文。</p>
+          <div class="button-row">
+            <button type="button" class="secondary-button" id="importSettingsButton">匯入 JSON</button>
+            <button type="button" class="secondary-button" id="exportSettingsButton">匯出 JSON</button>
+          </div>
+          <p class="field-hint field-status" id="settingsJsonStatus">匯出檔會包含目前設定與 API Key，請自行妥善保管。</p>
+          <input id="settingsImportInput" type="file" accept="application/json,.json" hidden>
+        </div>
+      </div>
+    </section>
+
     <!-- Protection Mode -->
     <section class="section">
       <h2>保護模式</h2>
@@ -214,6 +236,7 @@
   </div>
 
   <script src="../lib/constants.js"></script>
+  <script src="../lib/ignore-terms.js"></script>
   <script src="../lib/site-config.js"></script>
   <script src="popup.js"></script>
 </body>

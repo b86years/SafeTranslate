@@ -9,8 +9,10 @@
   'use strict';
 
   var ST = globalThis.__SAFE_TRANSLATE__;
+  var ignoreTermsHelper = globalThis.__SAFE_TRANSLATE_IGNORE_TERMS__;
   var siteConfig = globalThis.__SAFE_TRANSLATE_SITE_CONFIG__;
   if (!ST) return;
+  if (!ignoreTermsHelper) return;
   if (!siteConfig) return;
 
   // ──────────────────────────────────────────────
@@ -342,6 +344,7 @@
 
     var text = node.nodeValue.replace(/\s+/g, ' ').trim();
     if (!text || text.length < 3 || text.length > 800) return false;
+    if (isTextExcludedFromTranslation(text)) return false;
 
     var parent = node.parentElement;
     if (!parent.isConnected) return false;
@@ -357,6 +360,17 @@
     if (parent.getClientRects().length === 0) return false;
 
     return true;
+  }
+
+  function isTextExcludedFromTranslation(text) {
+    var masking = ignoreTermsHelper.maskTextWithIgnoreTerms(
+      text,
+      currentResolvedSettings.ignoreTerms || []
+    );
+
+    if (!masking.placeholders.length) return false;
+
+    return !masking.text.replace(/__SAFE_TRANSLATE_KEEP_\d+__/g, ' ').trim();
   }
 
   function getNodeViewportDistance(node) {
@@ -553,9 +567,7 @@
   function showTooltip(text, x, y) {
     ensureTooltip();
     tooltipContent.innerHTML = '<span class="loading">翻譯中…</span>';
-    tooltipHost.style.display = 'block';
-    tooltipHost.style.left = Math.min(x, window.innerWidth - 420) + 'px';
-    tooltipHost.style.top = y + 10 + 'px';
+    positionTooltip(x, y);
 
     safeSend({
       type: ST.MESSAGES.TRANSLATE_TEXT,
@@ -584,6 +596,22 @@
       });
   }
 
+  function showTooltipMessage(text, x, y, sourceLabel) {
+    ensureTooltip();
+    tooltipContent.innerHTML =
+      escapeHtml(text) +
+      '<div class="src">' +
+      escapeHtml(sourceLabel || 'SafeTranslate') +
+      '</div>';
+    positionTooltip(x, y);
+  }
+
+  function positionTooltip(x, y) {
+    tooltipHost.style.display = 'block';
+    tooltipHost.style.left = Math.min(x, window.innerWidth - 420) + 'px';
+    tooltipHost.style.top = y + 10 + 'px';
+  }
+
   function hideTooltip() {
     if (tooltipHost) tooltipHost.style.display = 'none';
   }
@@ -601,16 +629,123 @@
   // Store selected text for context-menu translation
   document.addEventListener('mouseup', function (e) {
     var sel = window.getSelection();
-    var text = sel ? sel.toString().trim() : '';
-    if (text.length > 0 && text.length < 5000) {
+    var selectionDetails = getSelectionDetails(sel);
+
+    if (
+      selectionDetails.selectedText.length > 0 &&
+      selectionDetails.selectedText.length < 5000
+    ) {
       safeSend({
         type: 'selectedText',
-        payload: { text: text, x: e.clientX, y: e.clientY },
+        payload: {
+          text: selectionDetails.selectedText,
+          x: e.clientX,
+          y: e.clientY,
+          directOriginalText: selectionDetails.directOriginalText,
+          selectedFromTranslatedNode: selectionDetails.selectedFromTranslatedNode,
+          sourceLanguage: selectionDetails.sourceLanguage,
+        },
       });
     } else {
       hideTooltip();
     }
   });
+
+  function getSelectionDetails(selection) {
+    var sel = selection || window.getSelection();
+    var range;
+    var selectedText;
+    var directOriginalText = '';
+    var selectedFromTranslatedNode = false;
+
+    if (!sel || !sel.rangeCount) {
+      return createEmptySelectionDetails();
+    }
+
+    range = sel.getRangeAt(0);
+    selectedText = normalizeSelectionText(sel.toString());
+
+    if (!selectedText) {
+      return createEmptySelectionDetails();
+    }
+
+    var singleNodeSelection = getSingleTextNodeSelection(range);
+    if (singleNodeSelection && originalTextByNode.has(singleNodeSelection.node)) {
+      selectedFromTranslatedNode = true;
+      directOriginalText = resolveDirectOriginalSelection(
+        singleNodeSelection,
+        selectedText
+      );
+    }
+
+    return {
+      selectedText: selectedText,
+      directOriginalText: directOriginalText,
+      selectedFromTranslatedNode: selectedFromTranslatedNode,
+      sourceLanguage: readLanguageHint(getLanguageHintTarget(range)) || '',
+    };
+  }
+
+  function createEmptySelectionDetails() {
+    return {
+      selectedText: '',
+      directOriginalText: '',
+      selectedFromTranslatedNode: false,
+      sourceLanguage: '',
+    };
+  }
+
+  function getSingleTextNodeSelection(range) {
+    if (!range) return null;
+    if (range.startContainer !== range.endContainer) return null;
+    if (range.startContainer.nodeType !== Node.TEXT_NODE) return null;
+
+    return {
+      node: range.startContainer,
+      startOffset: range.startOffset,
+      endOffset: range.endOffset,
+    };
+  }
+
+  function resolveDirectOriginalSelection(selection, selectedText) {
+    var node = selection.node;
+    var translatedText = node && node.nodeValue ? node.nodeValue : '';
+    var translatedSlice = normalizeSelectionText(
+      translatedText.slice(selection.startOffset, selection.endOffset)
+    );
+    var originalText = originalTextByNode.get(node) || '';
+
+    if (!originalText || translatedSlice !== selectedText) {
+      return '';
+    }
+
+    if (normalizeSelectionText(translatedText) === selectedText) {
+      return normalizeSelectionText(originalText);
+    }
+
+    if (translatedText.length === originalText.length) {
+      return normalizeSelectionText(
+        originalText.slice(selection.startOffset, selection.endOffset)
+      );
+    }
+
+    return '';
+  }
+
+  function normalizeSelectionText(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function getLanguageHintTarget(range) {
+    var node = range ? range.commonAncestorContainer : null;
+
+    if (!node) return document.body || document.documentElement;
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.parentElement || document.body || document.documentElement;
+    }
+
+    return node;
+  }
 
   document.addEventListener('scroll', hideTooltip, { passive: true });
   document.addEventListener(
@@ -654,8 +789,22 @@
     if (msg.type === 'showTranslation') {
       showTooltip(msg.text, msg.x || 100, msg.y || 100);
     }
+    if (msg.type === 'showNotice') {
+      showTooltipMessage(
+        msg.text,
+        msg.x || 100,
+        msg.y || 100,
+        msg.sourceLabel || 'SafeTranslate'
+      );
+      sendResponse({ ok: true });
+      return true;
+    }
     if (msg.type === 'hideTranslation') {
       hideTooltip();
+    }
+    if (msg.type === ST.MESSAGES.RESOLVE_SELECTION_ORIGINAL) {
+      sendResponse(getSelectionDetails(window.getSelection()));
+      return true;
     }
     if (msg.type === ST.MESSAGES.SETTINGS_UPDATED) {
       applyResolvedSettings(msg.payload || {});

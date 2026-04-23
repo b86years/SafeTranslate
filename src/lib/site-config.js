@@ -36,6 +36,7 @@
     var providerModel =
       raw[ST.STORAGE.PROVIDER_MODEL] || raw.providerModel;
     var siteOverrides = raw[ST.STORAGE.SITE_OVERRIDES] || raw.siteOverrides;
+    var ignoreTerms = raw[ST.STORAGE.IGNORE_TERMS] || raw.ignoreTerms;
 
     return {
       globalEnabled:
@@ -52,6 +53,9 @@
       providerBaseUrl: providerBaseUrl || ST.DEFAULTS.PROVIDER_BASE_URL,
       providerModel: providerModel || ST.DEFAULTS.PROVIDER_MODEL,
       siteOverrides: normalizeSiteOverrides(siteOverrides || {}),
+      ignoreTerms: globalThis.__SAFE_TRANSLATE_IGNORE_TERMS__
+        ? globalThis.__SAFE_TRANSLATE_IGNORE_TERMS__.normalizeIgnoreTerms(ignoreTerms)
+        : [],
     };
   }
 
@@ -127,6 +131,7 @@
       providerBaseUrl: settings.providerBaseUrl,
       providerModel: settings.providerModel,
       siteOverrides: settings.siteOverrides,
+      ignoreTerms: settings.ignoreTerms,
       siteKey: siteKey,
       siteMode: siteMode,
       siteTranslation: siteTranslation,
