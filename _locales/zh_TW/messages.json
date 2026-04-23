@@ -4,7 +4,7 @@
     "description": "擴充功能顯示名稱"
   },
   "extensionDescription": {
-    "message": "防止 Chrome 翻譯功能導致 React / Next.js 網站崩潰。修補 DOM 方法以安全處理翻譯引起的節點異動。",
+    "message": "降低 Chrome 翻譯對 React / Next.js 網站的破壞，並支援 Chrome 內建 AI、自訂 OpenAI 相容 API 與 Ollama 翻譯。",
     "description": "Chrome 線上應用程式商店中顯示的描述"
   },
   "contextMenuTranslate": {

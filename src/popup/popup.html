@@ -28,6 +28,62 @@
       </div>
     </div>
 
+    <section class="section">
+      <h2>翻譯設定</h2>
+      <div class="panel settings-panel">
+        <div class="field-grid">
+          <div class="field-group field-span-2">
+            <label class="field-label" for="targetLanguageSelect">目標語言</label>
+            <select id="targetLanguageSelect" class="select-field">
+              <option value="zh-TW">繁體中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+              <option value="fr">Français</option>
+              <option value="de">Deutsch</option>
+              <option value="es">Español</option>
+              <option value="pt">Português</option>
+              <option value="ru">Русский</option>
+              <option value="it">Italiano</option>
+              <option value="th">ไทย</option>
+              <option value="vi">Tiếng Việt</option>
+            </select>
+          </div>
+          <div class="field-group field-span-2">
+            <label class="field-label" for="providerSelect">翻譯引擎</label>
+            <select id="providerSelect" class="select-field">
+              <option value="builtIn">Chrome Built-in AI</option>
+              <option value="openaiCompatible">OpenAI Compatible API</option>
+              <option value="ollama">Ollama</option>
+            </select>
+            <p class="field-hint" id="providerHint">優先使用本機 Translator API，在支援裝置上可離線運作。</p>
+          </div>
+          <div class="field-group field-span-2 provider-field" id="providerBaseGroup">
+            <label class="field-label" for="providerBaseUrlInput">Base URL</label>
+            <input id="providerBaseUrlInput" class="text-field" type="url" placeholder="https://api.example.com/v1">
+          </div>
+          <div class="field-group field-span-2 provider-field" id="providerModelGroup">
+            <label class="field-label" for="providerModelInput">Model</label>
+            <input id="providerModelInput" class="text-field" type="text" placeholder="gpt-4.1-mini">
+          </div>
+          <div class="field-group field-span-2 provider-field" id="providerApiKeyGroup">
+            <label class="field-label" for="providerApiKeyInput">API Key</label>
+            <input id="providerApiKeyInput" class="text-field" type="password" placeholder="只儲存在目前裝置">
+          </div>
+        </div>
+        <div class="switch-row">
+          <div>
+            <span class="switch-label">自動翻譯頁面內容</span>
+            <p class="field-hint">在目前分頁自動翻譯可見文字區塊到目標語言。</p>
+          </div>
+          <label class="toggle toggle-compact" aria-label="自動翻譯頁面內容">
+            <input type="checkbox" id="autoTranslateToggle" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    </section>
+
     <!-- Protection Mode -->
     <section class="section">
       <h2>保護模式</h2>
@@ -61,6 +117,11 @@
           <option value="inherit">跟隨全域設定</option>
           <option value="patchOnly">強制修補模式</option>
           <option value="blockAndTooltip">強制攔截模式</option>
+        </select>
+        <label class="field-label" for="siteTranslationSelect">此網站翻譯</label>
+        <select id="siteTranslationSelect" class="select-field">
+          <option value="inherit">跟隨全域設定</option>
+          <option value="never">絕不翻譯此網站</option>
         </select>
         <p class="field-hint">站點策略會在目前網站優先於全域模式生效。必要時請重新整理頁面。</p>
       </div>
@@ -106,7 +167,7 @@
 
     <!-- Footer -->
     <footer class="footer">
-      <span>v1.0.0</span>
+      <span id="footerVersion">v1.0.0</span>
     </footer>
   </div>
 

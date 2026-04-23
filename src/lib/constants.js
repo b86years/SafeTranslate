@@ -7,7 +7,7 @@
   'use strict';
 
   var SAFE_TRANSLATE = Object.freeze({
-    VERSION: '1.1.0',
+    VERSION: '1.2.0',
 
     // Custom DOM events for MAIN ↔ ISOLATED world communication
     EVENTS: Object.freeze({
@@ -19,10 +19,12 @@
     MESSAGES: Object.freeze({
       UPDATE_TAB_STATUS: 'updateTabStatus',
       TRANSLATE_TEXT: 'translateText',
+      TRANSLATE_VIA_PAGE: 'translateViaPage',
       GET_SETTINGS: 'getSettings',
       UPDATE_SETTINGS: 'updateSettings',
       GET_PAGE_STATE: 'getPageState',
       SETTINGS_UPDATED: 'settingsUpdated',
+      AUTO_TRANSLATE_PAGE: 'autoTranslatePage',
     }),
 
     // Chrome storage keys
@@ -30,13 +32,32 @@
       GLOBAL_ENABLED: 'globalEnabled',
       PROTECTION_MODE: 'protectionMode',
       TARGET_LANGUAGE: 'targetLanguage',
+      AUTO_TRANSLATE_PAGE: 'autoTranslatePage',
+      TRANSLATION_PROVIDER: 'translationProvider',
+      PROVIDER_BASE_URL: 'providerBaseUrl',
+      PROVIDER_MODEL: 'providerModel',
       SITE_OVERRIDES: 'siteOverrides',
+    }),
+
+    STORAGE_LOCAL: Object.freeze({
+      PROVIDER_API_KEY: 'providerApiKey',
+    }),
+
+    PROVIDERS: Object.freeze({
+      BUILT_IN: 'builtIn',
+      OPENAI_COMPATIBLE: 'openaiCompatible',
+      OLLAMA: 'ollama',
     }),
 
     SITE_OVERRIDES: Object.freeze({
       INHERIT: 'inherit',
       PATCH_ONLY: 'patchOnly',
       BLOCK_AND_TOOLTIP: 'blockAndTooltip',
+    }),
+
+    SITE_TRANSLATION: Object.freeze({
+      INHERIT: 'inherit',
+      NEVER: 'never',
     }),
 
     // Protection modes
@@ -50,6 +71,10 @@
       GLOBAL_ENABLED: true,
       PROTECTION_MODE: 'patchOnly',
       TARGET_LANGUAGE: 'zh-TW',
+      AUTO_TRANSLATE_PAGE: true,
+      TRANSLATION_PROVIDER: 'builtIn',
+      PROVIDER_BASE_URL: '',
+      PROVIDER_MODEL: '',
       REQUEST_TIMEOUT_MS: 5000,
     }),
 

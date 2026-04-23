@@ -16,13 +16,19 @@
     [
       ST.STORAGE.PROTECTION_MODE,
       ST.STORAGE.GLOBAL_ENABLED,
+      ST.STORAGE.TARGET_LANGUAGE,
+      ST.STORAGE.AUTO_TRANSLATE_PAGE,
+      ST.STORAGE.TRANSLATION_PROVIDER,
       ST.STORAGE.SITE_OVERRIDES,
     ],
     function (data) {
       var resolved = siteConfig.resolveSiteSettings(location.href, data);
       if (resolved.globalEnabled === false) return;
 
-      if (resolved.effectiveMode === ST.MODES.BLOCK_AND_TOOLTIP) {
+      if (
+        resolved.effectiveMode === ST.MODES.BLOCK_AND_TOOLTIP ||
+        resolved.neverTranslate
+      ) {
         blockChromeTranslation();
       }
     }
@@ -32,7 +38,13 @@
     if (message.type !== ST.MESSAGES.SETTINGS_UPDATED) return;
 
     var resolved = siteConfig.resolveSiteSettings(location.href, message.payload);
-    if (resolved.globalEnabled !== false && resolved.effectiveMode === ST.MODES.BLOCK_AND_TOOLTIP) {
+    if (
+      resolved.globalEnabled !== false &&
+      (
+        resolved.effectiveMode === ST.MODES.BLOCK_AND_TOOLTIP ||
+        resolved.neverTranslate
+      )
+    ) {
         blockChromeTranslation();
     }
   });

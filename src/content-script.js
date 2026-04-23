@@ -30,6 +30,15 @@
     siteKey: siteConfig.normalizeHost(location.href),
   };
   var hasReportedTranslation = false;
+  var currentResolvedSettings = siteConfig.resolveSiteSettings(location.href, {});
+  var originalTextByNode = new WeakMap();
+  var translatedTargetByNode = new WeakMap();
+  var trackedTranslatedNodes = [];
+  var translatorCache = new Map();
+  var languageDetectorPromise = null;
+  var autoTranslateTimer = 0;
+  var isApplyingAutoTranslation = false;
+  var contentObserver = null;
 
   function readRootState() {
     var root = document.documentElement;
@@ -165,6 +174,340 @@
 
   function noop() {}
 
+  function loadSettings() {
+    chrome.storage.sync.get(null, function (raw) {
+      applyResolvedSettings(raw || {});
+    });
+  }
+
+  function applyResolvedSettings(raw) {
+    var previousTarget = currentResolvedSettings.targetLanguage;
+    var previousProvider = currentResolvedSettings.translationProvider;
+    var previousTranslationPolicy = currentResolvedSettings.siteTranslation;
+
+    currentResolvedSettings = siteConfig.resolveSiteSettings(location.href, raw || {});
+
+    if (
+      previousTarget !== currentResolvedSettings.targetLanguage ||
+      previousProvider !== currentResolvedSettings.translationProvider ||
+      previousTranslationPolicy !== currentResolvedSettings.siteTranslation
+    ) {
+      restoreTranslatedNodes();
+    }
+
+    if (shouldAutoTranslatePage()) {
+      scheduleAutoTranslate('settings');
+    } else {
+      restoreTranslatedNodes();
+    }
+  }
+
+  function shouldAutoTranslatePage() {
+    return (
+      window.top === window &&
+      currentResolvedSettings.globalEnabled !== false &&
+      currentResolvedSettings.autoTranslatePage !== false &&
+      !currentResolvedSettings.neverTranslate
+    );
+  }
+
+  function scheduleAutoTranslate(_reason) {
+    if (!shouldAutoTranslatePage()) return;
+    if (autoTranslateTimer) {
+      clearTimeout(autoTranslateTimer);
+    }
+    autoTranslateTimer = setTimeout(function () {
+      autoTranslateTimer = 0;
+      void autoTranslatePage();
+    }, 250);
+  }
+
+  async function autoTranslatePage() {
+    if (!shouldAutoTranslatePage()) return;
+    if (!document.body) return;
+    if (isApplyingAutoTranslation) return;
+
+    var snapshot = {
+      provider: currentResolvedSettings.translationProvider,
+      targetLanguage: currentResolvedSettings.targetLanguage,
+      baseUrl: currentResolvedSettings.providerBaseUrl,
+      model: currentResolvedSettings.providerModel,
+    };
+    var nodes = collectCandidateTextNodes(40);
+
+    if (!nodes.length) return;
+
+    isApplyingAutoTranslation = true;
+    try {
+      for (var i = 0; i < nodes.length; i++) {
+        if (!shouldAutoTranslatePage()) break;
+        try {
+          await translateNode(nodes[i], snapshot);
+        } catch (_) {}
+      }
+    } finally {
+      isApplyingAutoTranslation = false;
+    }
+  }
+
+  function collectCandidateTextNodes(limit) {
+    if (!document.body) return [];
+
+    var nodes = [];
+    var walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode: function (node) {
+          return isTranslatableTextNode(node)
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_REJECT;
+        },
+      }
+    );
+
+    while (walker.nextNode() && nodes.length < limit) {
+      nodes.push(walker.currentNode);
+    }
+
+    return nodes;
+  }
+
+  function isTranslatableTextNode(node) {
+    if (!node || !node.parentElement) return false;
+    if (!node.nodeValue) return false;
+
+    var text = node.nodeValue.replace(/\s+/g, ' ').trim();
+    if (!text || text.length < 3 || text.length > 800) return false;
+
+    var parent = node.parentElement;
+    if (!parent.isConnected) return false;
+    if (parent.closest('#safe-translate-tooltip')) return false;
+    if (parent.closest('[data-safe-translate-skip="1"]')) return false;
+    if (parent.closest('script, style, noscript, textarea, input, select, option, button, code, pre')) {
+      return false;
+    }
+    if (parent.closest('[contenteditable="true"]')) return false;
+    if (parent.getClientRects().length === 0) return false;
+
+    return true;
+  }
+
+  async function translateNode(node, snapshot) {
+    if (!node || !node.parentElement || !node.isConnected) return;
+
+    var originalText = originalTextByNode.has(node)
+      ? originalTextByNode.get(node)
+      : node.nodeValue;
+    var text = String(originalText || '').replace(/\s+/g, ' ').trim();
+
+    if (!text) return;
+    if (translatedTargetByNode.get(node) === snapshot.targetLanguage) return;
+
+    var sourceLanguage = await determineSourceLanguage(node, text, snapshot.provider);
+    if (!sourceLanguage) return;
+    if (sameLanguage(sourceLanguage, snapshot.targetLanguage)) return;
+
+    var result;
+    if (snapshot.provider === ST.PROVIDERS.BUILT_IN) {
+      result = await translateTextWithBuiltIn(text, sourceLanguage, snapshot.targetLanguage);
+    } else {
+      result = await safeSend({
+        type: ST.MESSAGES.TRANSLATE_TEXT,
+        payload: {
+          text: text,
+          sourceLanguage: sourceLanguage,
+          targetLang: snapshot.targetLanguage,
+          provider: snapshot.provider,
+          baseUrl: snapshot.baseUrl,
+          model: snapshot.model,
+          url: location.href,
+        },
+      });
+    }
+
+    if (!result || !result.translated || result.translated === text) return;
+
+    if (!originalTextByNode.has(node)) {
+      originalTextByNode.set(node, node.nodeValue);
+      trackedTranslatedNodes.push(node);
+    }
+
+    node.nodeValue = result.translated;
+    translatedTargetByNode.set(node, snapshot.targetLanguage);
+  }
+
+  function restoreTranslatedNodes() {
+    for (var i = 0; i < trackedTranslatedNodes.length; i++) {
+      var node = trackedTranslatedNodes[i];
+      if (!node || !node.isConnected) continue;
+      if (!originalTextByNode.has(node)) continue;
+      node.nodeValue = originalTextByNode.get(node);
+    }
+
+    trackedTranslatedNodes = [];
+    originalTextByNode = new WeakMap();
+    translatedTargetByNode = new WeakMap();
+  }
+
+  async function determineSourceLanguage(node, text, provider) {
+    var hinted = readLanguageHint(node);
+    if (provider !== ST.PROVIDERS.BUILT_IN) {
+      return hinted || 'auto';
+    }
+
+    if (hinted) return hinted;
+
+    var detected = await detectLanguage(text);
+    return detected || null;
+  }
+
+  function readLanguageHint(node) {
+    var langSource = '';
+
+    if (node.parentElement) {
+      var nearest = node.parentElement.closest('[lang]');
+      if (nearest) {
+        langSource = nearest.getAttribute('lang') || '';
+      }
+    }
+
+    if (!langSource) {
+      langSource = document.documentElement.getAttribute('lang') || '';
+    }
+
+    return normalizeLanguageTag(langSource);
+  }
+
+  function normalizeLanguageTag(value) {
+    var raw = String(value || '').trim();
+    if (!raw) return '';
+
+    var lower = raw.toLowerCase();
+    if (lower === 'zh-tw' || lower === 'zh-hk' || lower === 'zh-mo') {
+      return 'zh-Hant';
+    }
+    if (lower === 'zh-cn' || lower === 'zh-sg') {
+      return 'zh';
+    }
+    if (lower === 'he') {
+      return 'iw';
+    }
+
+    var parts = raw.split('-');
+    if (parts.length === 1) {
+      return parts[0];
+    }
+    return parts[0];
+  }
+
+  function sameLanguage(sourceLanguage, targetLanguage) {
+    return normalizeLanguageTag(sourceLanguage) === normalizeLanguageTag(targetLanguage);
+  }
+
+  async function detectLanguage(text) {
+    if (!('LanguageDetector' in self)) return '';
+    if (!text || text.length < 12) return '';
+
+    try {
+      var detector = await getLanguageDetector();
+      if (!detector) return '';
+      var results = await detector.detect(text);
+      if (!results || !results.length) return '';
+      if ((results[0].confidence || 0) < 0.6) return '';
+      return normalizeLanguageTag(results[0].detectedLanguage);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function getLanguageDetector() {
+    if (!('LanguageDetector' in self)) {
+      return Promise.resolve(null);
+    }
+
+    if (!languageDetectorPromise) {
+      languageDetectorPromise = LanguageDetector.availability()
+        .then(function (availability) {
+          if (availability === 'unavailable') return null;
+          return LanguageDetector.create();
+        })
+        .catch(function () {
+          languageDetectorPromise = Promise.resolve(null);
+          return null;
+        });
+    }
+
+    return languageDetectorPromise;
+  }
+
+  function getBuiltInTranslator(sourceLanguage, targetLanguage) {
+    var source = normalizeLanguageTag(sourceLanguage);
+    var target = normalizeLanguageTag(targetLanguage);
+    var key = source + '->' + target;
+
+    if (!translatorCache.has(key)) {
+      translatorCache.set(
+        key,
+        Translator.availability({
+          sourceLanguage: source,
+          targetLanguage: target,
+        })
+          .then(function (availability) {
+            if (availability === 'unavailable') {
+              throw new Error('Built-in translation does not support ' + source + ' to ' + target);
+            }
+
+            return Translator.create({
+              sourceLanguage: source,
+              targetLanguage: target,
+            });
+          })
+          .catch(function (error) {
+            translatorCache.delete(key);
+            throw error;
+          })
+      );
+    }
+
+    return translatorCache.get(key);
+  }
+
+  async function translateTextWithBuiltIn(text, sourceLanguage, targetLanguage) {
+    if (!('Translator' in self)) {
+      throw new Error('Chrome built-in Translator API is unavailable');
+    }
+
+    var translator = await getBuiltInTranslator(sourceLanguage, targetLanguage);
+    var translated = await translator.translate(text);
+    if (!translated) {
+      throw new Error('Chrome built-in Translator returned an empty response');
+    }
+
+    return { translated: translated };
+  }
+
+  function ensureContentObserver() {
+    if (contentObserver || !document.body || window.top !== window) return;
+
+    contentObserver = new MutationObserver(function (mutations) {
+      if (isApplyingAutoTranslation) return;
+
+      for (var i = 0; i < mutations.length; i++) {
+        var mutation = mutations[i];
+        if (mutation.type === 'childList' && mutation.addedNodes.length) {
+          scheduleAutoTranslate('mutation');
+          return;
+        }
+      }
+    });
+
+    contentObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  }
+
   // ──────────────────────────────────────────────
   // Selection-based Translation Tooltip
   // ──────────────────────────────────────────────
@@ -207,7 +550,7 @@
 
     safeSend({
       type: ST.MESSAGES.TRANSLATE_TEXT,
-      payload: { text: text },
+      payload: { text: text, url: location.href },
     })
       .then(function (res) {
         if (!tooltipContent) return;
@@ -282,6 +625,19 @@
       return true;
     }
 
+    if (msg.type === ST.MESSAGES.TRANSLATE_VIA_PAGE) {
+      handlePageTranslationRequest(msg.payload)
+        .then(sendResponse)
+        .catch(function (error) {
+          sendResponse({
+            translated: null,
+            error: true,
+            message: error && error.message ? error.message : 'Built-in translation failed',
+          });
+        });
+      return true;
+    }
+
     if (msg.type === 'showTranslation') {
       showTooltip(msg.text, msg.x || 100, msg.y || 100);
     }
@@ -289,10 +645,37 @@
       hideTooltip();
     }
     if (msg.type === ST.MESSAGES.SETTINGS_UPDATED) {
+      applyResolvedSettings(msg.payload || {});
       readRootState();
       syncBadge();
     }
   });
+
+  async function handlePageTranslationRequest(payload) {
+    var sourceLanguage = payload && payload.sourceLanguage ? payload.sourceLanguage : '';
+    var text = payload && payload.text ? payload.text : '';
+    var targetLanguage =
+      payload && payload.targetLang
+        ? payload.targetLang
+        : currentResolvedSettings.targetLanguage;
+
+    if (!text) {
+      return { translated: null, error: true, message: 'No text to translate' };
+    }
+
+    if (!sourceLanguage || sourceLanguage === 'auto') {
+      sourceLanguage = readLanguageHint(document.body ? document.body.firstChild || document.body : null);
+      if (!sourceLanguage) {
+        sourceLanguage = await detectLanguage(text);
+      }
+    }
+
+    if (!sourceLanguage) {
+      throw new Error('Unable to detect source language for built-in translation');
+    }
+
+    return await translateTextWithBuiltIn(text, sourceLanguage, targetLanguage);
+  }
 
   // ──────────────────────────────────────────────
   // Initialization
@@ -300,6 +683,8 @@
 
   readRootState();
   state.isReactSite = detectReact();
+  loadSettings();
+  ensureContentObserver();
   if (state.translationDetected || state.protectionActive) {
     syncFromDomEvent();
   } else {

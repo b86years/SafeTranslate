@@ -2,7 +2,7 @@
 
 Chinese version: [README.md](README.md)
 
-SafeTranslate is a Chrome Manifest V3 extension that reduces the damage caused by Chrome's built-in translation on React and Next.js applications. It helps avoid common client-side exceptions, hydration mismatches, and DOM mutation errors.
+SafeTranslate is a Chrome Manifest V3 extension that reduces the damage caused by Chrome's built-in translation on React and Next.js applications. It helps avoid common client-side exceptions, hydration mismatches, and DOM mutation errors, while adding configurable translation providers.
 
 The project is focused on one goal: provide a stable, observable, and overrideable translation protection layer without rewriting site code or forcing application-level changes.
 
@@ -22,6 +22,8 @@ The project is focused on one goal: provide a stable, observable, and overrideab
 - Detects common translation markers such as `<font>` nodes and the `translated-ltr` class
 - Two protection modes: `patchOnly` and `blockAndTooltip`
 - Per-site override policies
+- Translation providers for Chrome built-in AI, OpenAI-compatible APIs, and Ollama
+- Target language selection, automatic page translation, and a per-site never-translate policy
 - Built-in diagnostics for detection reasons, fallback counts, and last handled errors
 - Background service worker for tab state, context menus, and translation caching
 
@@ -45,14 +47,19 @@ SafeTranslate does not modify application code. Instead, it adds a protection an
 
 Minimum supported Chrome version: 111.
 
+Chrome built-in Translator and Language Detector features require desktop Chrome 138 or later, plus compatible device resources and downloaded on-device models. If the built-in APIs are unavailable, users can switch to a custom OpenAI-compatible API or Ollama.
+
 ## Usage
 
 After installation, click the SafeTranslate toolbar icon to open the popup.
 
 - Use the toggle to enable or disable protection globally
+- Choose a target language and translation provider
+- Configure a custom OpenAI-compatible base URL, model, and API key, or an Ollama base URL and model
+- Toggle automatic translation for visible page content
 - `patchOnly` is the recommended default
 - `blockAndTooltip` blocks Chrome translation and uses a safe tooltip-based translation flow
-- You can set a policy per site, and site-level overrides take priority over the global mode
+- You can set both a site policy and a never-translate rule per site, and site-level overrides take priority over the global mode
 
 You can also translate selected text from the context menu.
 
@@ -72,6 +79,9 @@ You can also translate selected text from the context menu.
 
 - Safe Tooltip Translation
   Displays translated selected text without mutating the DOM controlled by React.
+
+- Translation Providers
+  Uses one shared settings model for Chrome built-in AI, OpenAI-compatible APIs, and Ollama, while dispatching each provider through the execution context it requires.
 
 ## Project Structure
 
@@ -97,12 +107,15 @@ You can also translate selected text from the context menu.
 
 - `patchOnly` reduces crash risk but cannot guarantee zero side effects on every site
 - `blockAndTooltip` disables Chrome translation, so it is not suitable for users who want full-page translation from Chrome itself
-- The safe translation tooltip focuses on selected text, not full-page translation
+- Automatic translation rewrites text nodes on the page. It avoids high-risk regions where possible, but highly dynamic frontend apps may still have compatibility risks
+- Chrome built-in AI availability depends on browser version, device capability, and model download state
 
 ## Privacy
 
 - The extension does not actively collect page data
-- Translation requests are only triggered after the user selects text
+- Chrome built-in AI translations run on-device
+- OpenAI-compatible and Ollama providers send translated text to the configured endpoint
+- API keys are stored only on the current device and are not synced across browsers
 - No telemetry or remote event collection is included
 
 ## Development Principles

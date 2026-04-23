@@ -103,25 +103,39 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     // ── Popup → Background ──
 
     case ST.MESSAGES.GET_SETTINGS:
-      chrome.storage.sync.get(null, function (raw) {
-        sendResponse(siteConfig.readSettings(raw));
+      loadSettingsBundle().then(function (bundle) {
+        var settings = siteConfig.readSettings(bundle.sync);
+        settings.providerApiKey = bundle.local[ST.STORAGE_LOCAL.PROVIDER_API_KEY] || '';
+        settings.hasProviderApiKey = Boolean(settings.providerApiKey);
+        sendResponse(settings);
       });
       return true;
 
     case ST.MESSAGES.UPDATE_SETTINGS:
-      chrome.storage.sync.set(msg.payload, function () {
-        broadcastSettings(msg.payload, msg.tabId);
-        sendResponse({ ok: true });
-      });
+      updateSettings(msg.payload, msg.tabId)
+        .then(function () {
+          sendResponse({ ok: true });
+        })
+        .catch(function (error) {
+          sendResponse({
+            ok: false,
+            error: true,
+            message: error && error.message ? error.message : 'Failed to update settings',
+          });
+        });
       return true;
 
     // ── Translation request ──
 
     case ST.MESSAGES.TRANSLATE_TEXT:
-      translate(msg.payload)
+      translate(msg.payload, tabId)
         .then(sendResponse)
-        .catch(function () {
-          sendResponse({ translated: null, error: true });
+        .catch(function (error) {
+          sendResponse({
+            translated: null,
+            error: true,
+            message: error && error.message ? error.message : 'Translation failed',
+          });
         });
       return true;
   }
@@ -134,56 +148,114 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
 var cache = new Map();
 var CACHE_LIMIT = 500;
 
-async function translate(payload) {
+async function translate(payload, tabId) {
+  var settingsBundle = await loadSettingsBundle();
+  var resolved = siteConfig.resolveSiteSettings(
+    payload && payload.url ? payload.url : '',
+    settingsBundle.sync
+  );
   var text = payload.text;
-  var lang = payload.targetLang || ST.DEFAULTS.TARGET_LANGUAGE;
-  var key = lang + '\t' + text;
+  var lang = payload.targetLang || resolved.targetLanguage || ST.DEFAULTS.TARGET_LANGUAGE;
+  var provider =
+    payload.provider ||
+    resolved.translationProvider ||
+    ST.DEFAULTS.TRANSLATION_PROVIDER;
+  var providerBaseUrl =
+    payload.baseUrl || resolved.providerBaseUrl || ST.DEFAULTS.PROVIDER_BASE_URL;
+  var providerModel =
+    payload.model || resolved.providerModel || ST.DEFAULTS.PROVIDER_MODEL;
+  var sourceLanguage = payload.sourceLanguage || 'auto';
+  var key = [provider, providerBaseUrl, providerModel, sourceLanguage, lang, text].join('\t');
+
+  if (!text) {
+    return { translated: null, error: true, message: 'No text to translate' };
+  }
 
   // LRU cache hit → move to end
   if (cache.has(key)) {
     var hit = cache.get(key);
     cache.delete(key);
     cache.set(key, hit);
-    return { translated: hit };
+    return { translated: hit, provider: provider, cached: true };
   }
 
-  var url =
-    'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=' +
-    encodeURIComponent(lang) +
-    '&dt=t&q=' +
-    encodeURIComponent(text);
+  var result;
 
-  var controller = new AbortController();
-  var timeoutId = setTimeout(function () {
-    controller.abort();
-  }, ST.DEFAULTS.REQUEST_TIMEOUT_MS);
-
-  var res;
-  try {
-    res = await fetch(url, { signal: controller.signal });
-  } finally {
-    clearTimeout(timeoutId);
+  if (provider === ST.PROVIDERS.BUILT_IN) {
+    result = await translateViaPage(tabId, {
+      text: text,
+      targetLang: lang,
+      sourceLanguage: sourceLanguage,
+      url: payload.url || '',
+    });
+  } else if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
+    result = await translateWithOpenAICompatible({
+      text: text,
+      sourceLanguage: sourceLanguage,
+      targetLang: lang,
+      baseUrl: providerBaseUrl,
+      model: providerModel,
+      apiKey: settingsBundle.local[ST.STORAGE_LOCAL.PROVIDER_API_KEY] || '',
+    });
+  } else if (provider === ST.PROVIDERS.OLLAMA) {
+    result = await translateWithOllama({
+      text: text,
+      sourceLanguage: sourceLanguage,
+      targetLang: lang,
+      baseUrl: providerBaseUrl,
+      model: providerModel,
+    });
+  } else {
+    throw new Error('Unsupported provider: ' + provider);
   }
 
-  if (!res.ok) throw new Error('API ' + res.status);
-
-  var data = await res.json();
-  var out = '';
-  if (data && data[0]) {
-    for (var i = 0; i < data[0].length; i++) {
-      if (data[0][i] && data[0][i][0]) out += data[0][i][0];
-    }
-  }
-
-  if (out) {
+  if (result && result.translated) {
     // Evict oldest entry if cache is full
     if (cache.size >= CACHE_LIMIT) {
       cache.delete(cache.keys().next().value);
     }
-    cache.set(key, out);
+    cache.set(key, result.translated);
   }
 
-  return { translated: out || null };
+  return Object.assign({ provider: provider }, result);
+}
+
+function updateSettings(payload, tabId) {
+  var split = splitSettingsPayload(payload || {});
+  var tasks = [];
+
+  if (Object.keys(split.sync).length > 0) {
+    tasks.push(storageSyncSet(split.sync));
+  }
+
+  if (Object.keys(split.local).length > 0) {
+    tasks.push(storageLocalSet(split.local));
+  }
+
+  return Promise.all(tasks).then(function () {
+    var broadcastPayload = Object.assign({}, split.sync);
+    if (Object.prototype.hasOwnProperty.call(split.local, ST.STORAGE_LOCAL.PROVIDER_API_KEY)) {
+      broadcastPayload.hasProviderApiKey = Boolean(
+        split.local[ST.STORAGE_LOCAL.PROVIDER_API_KEY]
+      );
+    }
+    broadcastSettings(broadcastPayload, tabId);
+  });
+}
+
+function splitSettingsPayload(payload) {
+  var sync = Object.assign({}, payload);
+  var local = {};
+
+  if (Object.prototype.hasOwnProperty.call(sync, 'providerApiKey')) {
+    local[ST.STORAGE_LOCAL.PROVIDER_API_KEY] = sync.providerApiKey || '';
+    delete sync.providerApiKey;
+  }
+
+  return {
+    sync: sync,
+    local: local,
+  };
 }
 
 // ──────────────────────────────────────────────
@@ -212,7 +284,8 @@ chrome.contextMenus.onClicked.addListener(function (info, tab) {
       translate({
         text: info.selectionText,
         targetLang: resolved.targetLanguage,
-      }).then(function (result) {
+        url: tab.url || '',
+      }, tab.id).then(function (result) {
         if (result.translated) {
           chrome.tabs.sendMessage(tab.id, {
             type: 'showTranslation',
@@ -234,6 +307,218 @@ function incrementStat() {
   chrome.storage.local.get({ protectionCount: 0 }, function (d) {
     chrome.storage.local.set({ protectionCount: d.protectionCount + 1 });
   });
+}
+
+function loadSettingsBundle() {
+  return Promise.all([
+    storageSyncGet(null),
+    storageLocalGet({
+      providerApiKey: '',
+    }),
+  ]).then(function (results) {
+    return {
+      sync: results[0],
+      local: results[1],
+    };
+  });
+}
+
+function storageSyncGet(keys) {
+  return new Promise(function (resolve) {
+    chrome.storage.sync.get(keys, function (data) {
+      resolve(data || {});
+    });
+  });
+}
+
+function storageSyncSet(payload) {
+  return new Promise(function (resolve, reject) {
+    chrome.storage.sync.set(payload, function () {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function storageLocalGet(keys) {
+  return new Promise(function (resolve) {
+    chrome.storage.local.get(keys, function (data) {
+      resolve(data || {});
+    });
+  });
+}
+
+function storageLocalSet(payload) {
+  return new Promise(function (resolve, reject) {
+    chrome.storage.local.set(payload, function () {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function sendMessageToTab(tabId, message) {
+  return new Promise(function (resolve, reject) {
+    if (!tabId) {
+      reject(new Error('Page translation requires an active tab'));
+      return;
+    }
+
+    chrome.tabs.sendMessage(tabId, message, function (response) {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response || null);
+    });
+  });
+}
+
+async function translateViaPage(tabId, payload) {
+  var response = await sendMessageToTab(tabId, {
+    type: ST.MESSAGES.TRANSLATE_VIA_PAGE,
+    payload: payload,
+  });
+
+  if (!response || response.error) {
+    throw new Error(
+      response && response.message
+        ? response.message
+        : 'Built-in translation is unavailable on this page'
+    );
+  }
+
+  return response;
+}
+
+async function translateWithOpenAICompatible(payload) {
+  if (!payload.baseUrl) {
+    throw new Error('OpenAI compatible API base URL is required');
+  }
+  if (!payload.model) {
+    throw new Error('OpenAI compatible model is required');
+  }
+  if (!payload.apiKey) {
+    throw new Error('API key is required for OpenAI compatible provider');
+  }
+
+  var body = {
+    model: payload.model,
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You translate text faithfully. Return only the translated text with no commentary.',
+      },
+      {
+        role: 'user',
+        content:
+          'Translate the following text from ' +
+          payload.sourceLanguage +
+          ' to ' +
+          payload.targetLang +
+          ':\n\n' +
+          payload.text,
+      },
+    ],
+    temperature: 0.1,
+    stream: false,
+  };
+
+  var data = await postJson(normalizeOpenAIBaseUrl(payload.baseUrl), body, {
+    Authorization: 'Bearer ' + payload.apiKey,
+  });
+  var translated =
+    data &&
+    data.choices &&
+    data.choices[0] &&
+    data.choices[0].message &&
+    data.choices[0].message.content
+      ? String(data.choices[0].message.content).trim()
+      : '';
+
+  if (!translated) {
+    throw new Error('OpenAI compatible provider returned an empty response');
+  }
+
+  return { translated: translated };
+}
+
+async function translateWithOllama(payload) {
+  if (!payload.model) {
+    throw new Error('Ollama model is required');
+  }
+
+  var endpoint = normalizeOllamaBaseUrl(payload.baseUrl);
+  var data = await postJson(endpoint, {
+    model: payload.model,
+    prompt:
+      'Translate the following text from ' +
+      payload.sourceLanguage +
+      ' to ' +
+      payload.targetLang +
+      '. Return only the translated text.\n\n' +
+      payload.text,
+    stream: false,
+    options: {
+      temperature: 0.1,
+    },
+  });
+
+  var translated = data && data.response ? String(data.response).trim() : '';
+  if (!translated) {
+    throw new Error('Ollama returned an empty response');
+  }
+
+  return { translated: translated };
+}
+
+async function postJson(url, body, headers) {
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function () {
+    controller.abort();
+  }, ST.DEFAULTS.REQUEST_TIMEOUT_MS);
+
+  var res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: Object.assign(
+        {
+          'Content-Type': 'application/json',
+        },
+        headers || {}
+      ),
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!res.ok) {
+    throw new Error('Provider API ' + res.status);
+  }
+
+  return await res.json();
+}
+
+function normalizeOpenAIBaseUrl(baseUrl) {
+  return String(baseUrl || '')
+    .replace(/\/+$/, '')
+    .replace(/\/chat\/completions$/, '') + '/chat/completions';
+}
+
+function normalizeOllamaBaseUrl(baseUrl) {
+  var value = String(baseUrl || 'http://127.0.0.1:11434').replace(/\/+$/, '');
+  if (/\/api\/generate$/.test(value)) return value;
+  return value + '/api/generate';
 }
 
 function broadcastSettings(_partial, tabId) {
