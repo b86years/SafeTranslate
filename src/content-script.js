@@ -1000,6 +1000,13 @@
   readRootState();
   state.isReactSite = detectReact();
   loadSettings();
+
+  // Directly listen to storage so settings apply without page refresh.
+  // This is the primary path; the SETTINGS_UPDATED message remains as a fallback.
+  chrome.storage.sync.onChanged.addListener(function () {
+    loadSettings();
+  });
+
   ensureContentObserver();
   if (state.translationDetected || state.protectionActive) {
     syncFromDomEvent();

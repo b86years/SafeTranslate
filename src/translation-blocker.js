@@ -12,32 +12,43 @@
   if (!ST) return;
   if (!siteConfig) return;
 
-  chrome.storage.sync.get(
-    [
-      ST.STORAGE.PROTECTION_MODE,
-      ST.STORAGE.GLOBAL_ENABLED,
-      ST.STORAGE.TARGET_LANGUAGE,
-      ST.STORAGE.AUTO_TRANSLATE_PAGE,
-      ST.STORAGE.TRANSLATION_PROVIDER,
-      ST.STORAGE.SITE_OVERRIDES,
-    ],
-    function (data) {
-      var resolved = siteConfig.resolveSiteSettings(location.href, data);
-      if (resolved.globalEnabled === false) return;
+  var BLOCK_KEYS = [
+    ST.STORAGE.PROTECTION_MODE,
+    ST.STORAGE.GLOBAL_ENABLED,
+    ST.STORAGE.TARGET_LANGUAGE,
+    ST.STORAGE.AUTO_TRANSLATE_PAGE,
+    ST.STORAGE.TRANSLATION_PROVIDER,
+    ST.STORAGE.SITE_OVERRIDES,
+  ];
 
-      if (
-        resolved.effectiveMode === ST.MODES.BLOCK_AND_TOOLTIP ||
-        resolved.neverTranslate
-      ) {
-        blockChromeTranslation();
-      }
+  // Initial state on page load
+  chrome.storage.sync.get(BLOCK_KEYS, function (data) {
+    var resolved = siteConfig.resolveSiteSettings(location.href, data);
+    if (resolved.globalEnabled === false) return;
+
+    if (
+      resolved.effectiveMode === ST.MODES.BLOCK_AND_TOOLTIP ||
+      resolved.neverTranslate
+    ) {
+      blockChromeTranslation();
     }
-  );
+  });
 
+  // Primary: directly listen to storage so settings apply without page refresh
+  chrome.storage.sync.onChanged.addListener(function () {
+    chrome.storage.sync.get(BLOCK_KEYS, function (data) {
+      applyBlockSettings(data);
+    });
+  });
+
+  // Secondary: background broadcast (kept as fallback)
   chrome.runtime.onMessage.addListener(function (message) {
     if (message.type !== ST.MESSAGES.SETTINGS_UPDATED) return;
+    applyBlockSettings(message.payload || {});
+  });
 
-    var resolved = siteConfig.resolveSiteSettings(location.href, message.payload);
+  function applyBlockSettings(data) {
+    var resolved = siteConfig.resolveSiteSettings(location.href, data);
     if (
       resolved.globalEnabled !== false &&
       (
@@ -45,9 +56,11 @@
         resolved.neverTranslate
       )
     ) {
-        blockChromeTranslation();
+      blockChromeTranslation();
+    } else {
+      unblockChromeTranslation();
     }
-  });
+  }
 
   function blockChromeTranslation() {
     // Attribute-level blocking
@@ -72,6 +85,17 @@
       document.addEventListener('DOMContentLoaded', injectMeta, {
         once: true,
       });
+    }
+  }
+
+  function unblockChromeTranslation() {
+    document.documentElement.removeAttribute('translate');
+    document.documentElement.classList.remove('notranslate');
+
+    var meta = document.head &&
+      document.head.querySelector('meta[name="google"][content="notranslate"]');
+    if (meta && meta.parentNode) {
+      meta.parentNode.removeChild(meta);
     }
   }
 })();
