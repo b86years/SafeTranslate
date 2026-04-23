@@ -283,9 +283,17 @@
     if (!currentSettings) return;
 
     var provider = currentSettings.translationProvider || ST.DEFAULTS.TRANSLATION_PROVIDER;
-    var showBaseUrl = provider !== ST.PROVIDERS.BUILT_IN;
-    var showModel = provider !== ST.PROVIDERS.BUILT_IN;
-    var showApiKey = provider === ST.PROVIDERS.OPENAI_COMPATIBLE;
+    var showBaseUrl =
+      provider === ST.PROVIDERS.OPENAI_COMPATIBLE ||
+      provider === ST.PROVIDERS.OPENROUTER ||
+      provider === ST.PROVIDERS.OLLAMA;
+    var showModel =
+      provider === ST.PROVIDERS.OPENAI_COMPATIBLE ||
+      provider === ST.PROVIDERS.OPENROUTER ||
+      provider === ST.PROVIDERS.OLLAMA;
+    var showApiKey =
+      provider === ST.PROVIDERS.OPENAI_COMPATIBLE ||
+      provider === ST.PROVIDERS.OPENROUTER;
 
     $providerBaseGroup.hidden = !showBaseUrl;
     $providerModelGroup.hidden = !showModel;
@@ -300,6 +308,16 @@
       $providerBaseUrlInput.placeholder = '';
       $providerModelInput.placeholder = '';
       $providerModelHint.textContent = 'Chrome 內建 AI 會由瀏覽器自動管理模型。';
+    } else if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
+      $providerHint.textContent = '使用 Google 翻譯公開端點，不需要另外填 API Key 或模型。';
+      $providerBaseUrlInput.placeholder = '';
+      $providerModelInput.placeholder = '';
+      $providerModelHint.textContent = 'Google 翻譯會直接使用目前選擇的目標語言。';
+    } else if (provider === ST.PROVIDERS.OPENROUTER) {
+      $providerHint.textContent = 'OpenRouter 使用 OpenAI 相容格式，Base URL 可留空使用預設端點。';
+      $providerBaseUrlInput.placeholder = 'https://openrouter.ai/api/v1';
+      $providerModelInput.placeholder = 'google/gemini-2.0-flash-exp';
+      $providerModelHint.textContent = '輸入要使用的 OpenRouter 模型名稱。';
     } else if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
       $providerHint.textContent = '支援自訂 OpenAI 相容端點，API Key 只會留在目前裝置。';
       $providerBaseUrlInput.placeholder = 'https://api.example.com/v1';
@@ -321,6 +339,12 @@
   function getProviderStatusTitle(provider) {
     if (provider === ST.PROVIDERS.BUILT_IN) {
       return 'Chrome 內建 AI 狀態';
+    }
+    if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
+      return 'Google 翻譯狀態';
+    }
+    if (provider === ST.PROVIDERS.OPENROUTER) {
+      return 'OpenRouter 狀態';
     }
     if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
       return 'OpenAI 相容 API 狀態';
@@ -453,6 +477,22 @@
       };
     }
 
+    if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
+      return {
+        kind: 'idle',
+        label: '點擊檢查',
+        detail: '尚未檢查目前選擇的 Google 翻譯端點。',
+      };
+    }
+
+    if (provider === ST.PROVIDERS.OPENROUTER) {
+      return {
+        kind: 'idle',
+        label: '點擊檢查',
+        detail: '尚未檢查目前選擇的 OpenRouter API 與模型。',
+      };
+    }
+
     if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
       return {
         kind: 'idle',
@@ -546,6 +586,12 @@
   function getCheckingStatusDetail(provider) {
     if (provider === ST.PROVIDERS.BUILT_IN) {
       return '正在檢查目前分頁的 Chrome 內建 AI 可用性。';
+    }
+    if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
+      return '正在檢查 Google 翻譯公開端點是否可用。';
+    }
+    if (provider === ST.PROVIDERS.OPENROUTER) {
+      return '正在檢查目前 OpenRouter API 與模型是否可用。';
     }
     if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
       return '正在檢查目前 OpenAI 相容 API 與模型是否可用。';

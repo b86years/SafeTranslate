@@ -185,10 +185,11 @@ async function translate(payload, tabId) {
     payload.provider ||
     resolved.translationProvider ||
     ST.DEFAULTS.TRANSLATION_PROVIDER;
-  var providerBaseUrl =
-    payload.baseUrl || resolved.providerBaseUrl || ST.DEFAULTS.PROVIDER_BASE_URL;
-  var providerModel =
-    payload.model || resolved.providerModel || ST.DEFAULTS.PROVIDER_MODEL;
+  var providerBaseUrl = getProviderBaseUrl(
+    provider,
+    payload.baseUrl || resolved.providerBaseUrl || ST.DEFAULTS.PROVIDER_BASE_URL
+  );
+  var providerModel = payload.model || resolved.providerModel || ST.DEFAULTS.PROVIDER_MODEL;
   var sourceLanguage = payload.sourceLanguage || 'auto';
   var key = [provider, providerBaseUrl, providerModel, sourceLanguage, lang, text].join('\t');
 
@@ -212,6 +213,21 @@ async function translate(payload, tabId) {
       targetLang: lang,
       sourceLanguage: sourceLanguage,
       url: payload.url || '',
+    });
+  } else if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
+    result = await translateWithGoogleTranslate({
+      text: text,
+      sourceLanguage: sourceLanguage,
+      targetLang: lang,
+    });
+  } else if (provider === ST.PROVIDERS.OPENROUTER) {
+    result = await translateWithOpenRouter({
+      text: text,
+      sourceLanguage: sourceLanguage,
+      targetLang: lang,
+      baseUrl: providerBaseUrl,
+      model: providerModel,
+      apiKey: settingsBundle.local[ST.STORAGE_LOCAL.PROVIDER_API_KEY] || '',
     });
   } else if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
     result = await translateWithOpenAICompatible({
@@ -475,6 +491,73 @@ async function translateWithOpenAICompatible(payload) {
   return { translated: translated };
 }
 
+async function translateWithOpenRouter(payload) {
+  if (!payload.model) {
+    throw new Error('OpenRouter model is required');
+  }
+  if (!payload.apiKey) {
+    throw new Error('API key is required for OpenRouter');
+  }
+
+  var body = {
+    model: payload.model,
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You translate text faithfully. Return only the translated text with no commentary.',
+      },
+      {
+        role: 'user',
+        content:
+          'Translate the following text from ' +
+          payload.sourceLanguage +
+          ' to ' +
+          payload.targetLang +
+          ':\n\n' +
+          payload.text,
+      },
+    ],
+    temperature: 0.1,
+    stream: false,
+  };
+
+  var data = await postJson(normalizeOpenAIBaseUrl(payload.baseUrl), body, buildOpenRouterHeaders(payload.apiKey));
+  var translated =
+    data &&
+    data.choices &&
+    data.choices[0] &&
+    data.choices[0].message &&
+    data.choices[0].message.content
+      ? String(data.choices[0].message.content).trim()
+      : '';
+
+  if (!translated) {
+    throw new Error('OpenRouter returned an empty response');
+  }
+
+  return { translated: translated };
+}
+
+async function translateWithGoogleTranslate(payload) {
+  var params = new URLSearchParams({
+    client: 'gtx',
+    sl: normalizeGoogleLanguage(payload.sourceLanguage || 'auto'),
+    tl: normalizeGoogleLanguage(payload.targetLang),
+    dt: 't',
+    q: payload.text,
+  });
+  var endpoint = 'https://translate.googleapis.com/translate_a/single?' + params.toString();
+  var data = await fetchAnyJson(endpoint);
+  var translated = extractGoogleTranslateText(data);
+
+  if (!translated) {
+    throw new Error('Google Translate returned an empty response');
+  }
+
+  return { translated: translated };
+}
+
 async function translateWithOllama(payload) {
   if (!payload.model) {
     throw new Error('Ollama model is required');
@@ -622,9 +705,29 @@ async function checkProviderStatus(payload) {
     syncSettings.translationProvider ||
     ST.DEFAULTS.TRANSLATION_PROVIDER;
 
+  if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
+    return await checkGoogleTranslateStatus({
+      targetLang: syncSettings.targetLanguage || ST.DEFAULTS.TARGET_LANGUAGE,
+    });
+  }
+
+  if (provider === ST.PROVIDERS.OPENROUTER) {
+    return await checkOpenRouterStatus({
+      baseUrl: getProviderBaseUrl(
+        provider,
+        payload.baseUrl || syncSettings.providerBaseUrl || ''
+      ),
+      model: payload.model || syncSettings.providerModel || '',
+      apiKey: settingsBundle.local[ST.STORAGE_LOCAL.PROVIDER_API_KEY] || '',
+    });
+  }
+
   if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
     return await checkOpenAICompatibleStatus({
-      baseUrl: payload.baseUrl || syncSettings.providerBaseUrl || '',
+      baseUrl: getProviderBaseUrl(
+        provider,
+        payload.baseUrl || syncSettings.providerBaseUrl || ''
+      ),
       model: payload.model || syncSettings.providerModel || '',
       apiKey: settingsBundle.local[ST.STORAGE_LOCAL.PROVIDER_API_KEY] || '',
     });
@@ -641,6 +744,57 @@ async function checkProviderStatus(payload) {
     kind: 'warning',
     label: '請在頁面檢查',
     detail: 'Chrome 內建 AI 需要在目前分頁中檢查可用性。',
+  };
+}
+
+async function checkOpenRouterStatus(payload) {
+  if (!payload.apiKey) {
+    return {
+      kind: 'warning',
+      label: '缺少 API Key',
+      detail: '請先填入 OpenRouter API Key。',
+    };
+  }
+  if (!payload.model) {
+    return {
+      kind: 'warning',
+      label: '缺少 Model',
+      detail: '請先設定要使用的 OpenRouter 模型名稱。',
+    };
+  }
+
+  var endpoint = normalizeOpenAIModelsUrl(payload.baseUrl);
+  var data = await fetchJson(endpoint, buildOpenRouterHeaders(payload.apiKey));
+  var models = data && Array.isArray(data.data) ? data.data : [];
+  var matched = false;
+
+  for (var i = 0; i < models.length; i++) {
+    if (models[i] && models[i].id === payload.model) {
+      matched = true;
+      break;
+    }
+  }
+
+  if (matched) {
+    return {
+      kind: 'available',
+      label: '可用',
+      detail: '已連線到 OpenRouter，且可使用模型 ' + payload.model + '。',
+    };
+  }
+
+  if (models.length) {
+    return {
+      kind: 'warning',
+      label: '模型未列出',
+      detail: 'OpenRouter 可連線，但 models 清單中找不到 ' + payload.model + '。',
+    };
+  }
+
+  return {
+    kind: 'warning',
+    label: '清單為空',
+    detail: 'OpenRouter 可連線，但沒有回傳可用模型。',
   };
 }
 
@@ -763,6 +917,28 @@ async function checkOllamaStatus(payload) {
   };
 }
 
+async function checkGoogleTranslateStatus(payload) {
+  try {
+    await translateWithGoogleTranslate({
+      text: 'Hello world',
+      sourceLanguage: 'en',
+      targetLang: payload.targetLang || ST.DEFAULTS.TARGET_LANGUAGE,
+    });
+
+    return {
+      kind: 'available',
+      label: '可用',
+      detail: '已成功連線到 Google 翻譯公開端點。',
+    };
+  } catch (error) {
+    return {
+      kind: 'error',
+      label: '翻譯失敗',
+      detail: error && error.message ? error.message : 'Google 翻譯無法完成請求。',
+    };
+  }
+}
+
 async function postJson(url, body, headers, timeoutMs) {
   var controller = new AbortController();
   var timeoutId = setTimeout(function () {
@@ -815,6 +991,68 @@ async function fetchJson(url, headers, timeoutMs) {
   }
 
   return await res.json();
+}
+
+async function fetchAnyJson(url, headers, timeoutMs) {
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function () {
+    controller.abort();
+  }, timeoutMs || ST.DEFAULTS.REQUEST_TIMEOUT_MS);
+
+  var res;
+  try {
+    res = await fetch(url, {
+      method: 'GET',
+      headers: headers || {},
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!res.ok) {
+    throw new Error('Provider API ' + res.status);
+  }
+
+  return await res.json();
+}
+
+function extractGoogleTranslateText(data) {
+  if (!data || !Array.isArray(data) || !Array.isArray(data[0])) {
+    return '';
+  }
+
+  var chunks = [];
+
+  for (var i = 0; i < data[0].length; i++) {
+    var item = data[0][i];
+    if (item && item[0]) {
+      chunks.push(String(item[0]));
+    }
+  }
+
+  return chunks.join('').trim();
+}
+
+function normalizeGoogleLanguage(language) {
+  var value = String(language || 'auto').trim();
+  if (!value || value === 'auto') return 'auto';
+  return value;
+}
+
+function buildOpenRouterHeaders(apiKey) {
+  return {
+    Authorization: 'Bearer ' + apiKey,
+    'X-Title': 'SafeTranslate',
+  };
+}
+
+function getProviderBaseUrl(provider, configuredBaseUrl) {
+  if (provider === ST.PROVIDERS.OPENROUTER) {
+    return String(configuredBaseUrl || 'https://openrouter.ai/api/v1').trim();
+  }
+
+  return String(configuredBaseUrl || '').trim();
 }
 
 function normalizeOpenAIBaseUrl(baseUrl) {

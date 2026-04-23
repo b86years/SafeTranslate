@@ -4,7 +4,7 @@
     "description": "Extension display name"
   },
   "extensionDescription": {
-    "message": "Reduce Chrome translation breakage on React / Next.js sites and support Chrome built-in AI, custom OpenAI-compatible APIs, and Ollama translation.",
+    "message": "Reduce Chrome translation breakage on React / Next.js sites and support Chrome built-in AI, Google Translate, OpenRouter, custom OpenAI-compatible APIs, and Ollama translation.",
     "description": "Extension description shown in Chrome Web Store"
   },
   "contextMenuTranslate": {

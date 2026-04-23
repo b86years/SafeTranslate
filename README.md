@@ -21,7 +21,7 @@ SafeTranslate 是一個 Chrome Manifest V3 擴充功能，專門降低 Chrome �
 - 偵測 Chrome 翻譯常見的 DOM 痕跡，例如 `<font>` 節點與 `translated-ltr` 類別
 - 提供兩種保護模式：`patchOnly` 與 `blockAndTooltip`
 - 支援每網站覆寫策略，可針對特定網站強制套用模式
-- 支援 Chrome Built-in AI、OpenAI 相容 API 與 Ollama 三種翻譯來源
+- 支援 Chrome Built-in AI、Google 翻譯、OpenRouter、OpenAI 相容 API 與 Ollama 五種翻譯來源
 - 支援目標語言選擇、自動翻譯頁面可見內容，以及網站層級的「總是翻譯」與「絕不翻譯」
 - 內建診斷資訊，可查看偵測原因、fallback 次數與最後處理錯誤
 - 透過背景服務 worker 管理分頁狀態、右鍵選單與翻譯快取
@@ -54,7 +54,7 @@ SafeTranslate 的做法不是修改網站程式碼，而是在頁面最早期建
 
 - 開關可控制全域啟用與停用
 - 可選擇目標語言與翻譯引擎
-- 可設定 OpenAI 相容 API 的 base URL、model 與 API key，或設定 Ollama 的 base URL 與 model
+- 可設定 OpenRouter 或 OpenAI 相容 API 的 base URL、model 與 API key，或設定 Ollama 的 base URL 與 model，也可直接使用 Google 翻譯
 - 可控制是否自動翻譯目前頁面的可見文字內容
 - 「修補模式」建議作為預設值
 - 「攔截模式」適合不希望頁面被 Chrome 內建翻譯直接改寫的情境
@@ -80,7 +80,7 @@ SafeTranslate 的做法不是修改網站程式碼，而是在頁面最早期建
   在攔截模式下，用不改動 React 控管 DOM 的方式顯示翻譯結果。
 
 - Translation Providers
-  同一套設定模型可切換 Chrome Built-in AI、OpenAI 相容 API 與 Ollama，並由背景與頁面腳本分別處理適合的執行環境。
+  同一套設定模型可切換 Chrome Built-in AI、Google 翻譯、OpenRouter、OpenAI 相容 API 與 Ollama，並由背景與頁面腳本分別處理適合的執行環境。
 
 ## 專案結構
 
@@ -113,7 +113,7 @@ SafeTranslate 的做法不是修改網站程式碼，而是在頁面最早期建
 
 - 擴充功能不主動收集頁面資料
 - 使用 Chrome Built-in AI 時，翻譯在裝置端執行
-- 使用 OpenAI 相容 API 或 Ollama 時，翻譯文字會送往你設定的服務端點
+- 使用 Google 翻譯、OpenRouter、OpenAI 相容 API 或 Ollama 時，翻譯文字會送往對應的服務端點
 - API key 只儲存在目前裝置，不會透過同步設定跨裝置同步
 - 專案不包含遙測上報或遠端事件收集
 

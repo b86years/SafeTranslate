@@ -22,7 +22,7 @@ The project is focused on one goal: provide a stable, observable, and overrideab
 - Detects common translation markers such as `<font>` nodes and the `translated-ltr` class
 - Two protection modes: `patchOnly` and `blockAndTooltip`
 - Per-site override policies
-- Translation providers for Chrome built-in AI, OpenAI-compatible APIs, and Ollama
+- Translation providers for Chrome built-in AI, Google Translate, OpenRouter, OpenAI-compatible APIs, and Ollama
 - Target language selection, automatic page translation, plus per-site always-translate and never-translate policies
 - Built-in diagnostics for detection reasons, fallback counts, and last handled errors
 - Background service worker for tab state, context menus, and translation caching
@@ -55,7 +55,7 @@ After installation, click the SafeTranslate toolbar icon to open the popup.
 
 - Use the toggle to enable or disable protection globally
 - Choose a target language and translation provider
-- Configure a custom OpenAI-compatible base URL, model, and API key, or an Ollama base URL and model
+- Configure OpenRouter or a custom OpenAI-compatible base URL, model, and API key, configure an Ollama base URL and model, or use Google Translate directly
 - Toggle automatic translation for visible page content
 - `patchOnly` is the recommended default
 - `blockAndTooltip` blocks Chrome translation and uses a safe tooltip-based translation flow
@@ -81,7 +81,7 @@ You can also translate selected text from the context menu.
   Displays translated selected text without mutating the DOM controlled by React.
 
 - Translation Providers
-  Uses one shared settings model for Chrome built-in AI, OpenAI-compatible APIs, and Ollama, while dispatching each provider through the execution context it requires.
+  Uses one shared settings model for Chrome built-in AI, Google Translate, OpenRouter, OpenAI-compatible APIs, and Ollama, while dispatching each provider through the execution context it requires.
 
 ## Project Structure
 
@@ -114,7 +114,7 @@ You can also translate selected text from the context menu.
 
 - The extension does not actively collect page data
 - Chrome built-in AI translations run on-device
-- OpenAI-compatible and Ollama providers send translated text to the configured endpoint
+- Google Translate, OpenRouter, OpenAI-compatible, and Ollama providers send translated text to the corresponding endpoint
 - API keys are stored only on the current device and are not synced across browsers
 - No telemetry or remote event collection is included
 

@@ -48,6 +48,8 @@
 
     PROVIDERS: Object.freeze({
       BUILT_IN: 'builtIn',
+      GOOGLE_TRANSLATE: 'googleTranslate',
+      OPENROUTER: 'openRouter',
       OPENAI_COMPATIBLE: 'openaiCompatible',
       OLLAMA: 'ollama',
     }),
