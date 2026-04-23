@@ -54,6 +54,7 @@
   var currentSettings = null;
   var ollamaModelsLoadedFor = '';
   var currentPageState = null;
+  var currentTranslationMetrics = null;
   var currentTabActivity = createIdleTabActivity();
   var liveRefreshTimer = 0;
 
@@ -230,7 +231,10 @@
 
   function renderStatus(state) {
     currentPageState = state || null;
-    renderTranslationMetrics(currentPageState);
+    currentTranslationMetrics = normalizeTranslationMetrics(
+      state && state.translationMetrics
+    );
+    renderTranslationMetrics();
     renderCompositeStatus();
   }
 
@@ -415,8 +419,8 @@
     $diagLastError.textContent = state.lastHandledError || '-';
   }
 
-  function renderTranslationMetrics(state) {
-    var metrics = normalizeTranslationMetrics(state && state.translationMetrics);
+  function renderTranslationMetrics() {
+    var metrics = currentTranslationMetrics;
     $throughput.textContent = formatThroughput(metrics);
   }
 
@@ -676,7 +680,7 @@
       function (state) {
         if (chrome.runtime.lastError) {
           currentPageState = null;
-          renderTranslationMetrics(null);
+          renderTranslationMetrics();
           renderCompositeStatus();
           return;
         }
