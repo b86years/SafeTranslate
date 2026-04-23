@@ -171,6 +171,7 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
 // ──────────────────────────────────────────────
 
 var cache = new Map();
+var inFlightTranslations = new Map();
 var CACHE_LIMIT = 500;
 
 async function translate(payload, tabId) {
@@ -205,60 +206,73 @@ async function translate(payload, tabId) {
     return { translated: hit, provider: provider, cached: true };
   }
 
-  var result;
-
-  if (provider === ST.PROVIDERS.BUILT_IN) {
-    result = await translateViaPage(tabId, {
-      text: text,
-      targetLang: lang,
-      sourceLanguage: sourceLanguage,
-      url: payload.url || '',
-    });
-  } else if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
-    result = await translateWithGoogleTranslate({
-      text: text,
-      sourceLanguage: sourceLanguage,
-      targetLang: lang,
-    });
-  } else if (provider === ST.PROVIDERS.OPENROUTER) {
-    result = await translateWithOpenRouter({
-      text: text,
-      sourceLanguage: sourceLanguage,
-      targetLang: lang,
-      baseUrl: providerBaseUrl,
-      model: providerModel,
-      apiKey: settingsBundle.local[ST.STORAGE_LOCAL.PROVIDER_API_KEY] || '',
-    });
-  } else if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
-    result = await translateWithOpenAICompatible({
-      text: text,
-      sourceLanguage: sourceLanguage,
-      targetLang: lang,
-      baseUrl: providerBaseUrl,
-      model: providerModel,
-      apiKey: settingsBundle.local[ST.STORAGE_LOCAL.PROVIDER_API_KEY] || '',
-    });
-  } else if (provider === ST.PROVIDERS.OLLAMA) {
-    result = await translateWithOllama({
-      text: text,
-      sourceLanguage: sourceLanguage,
-      targetLang: lang,
-      baseUrl: providerBaseUrl,
-      model: providerModel,
-    });
-  } else {
-    throw new Error('Unsupported provider: ' + provider);
+  if (inFlightTranslations.has(key)) {
+    return await inFlightTranslations.get(key);
   }
 
-  if (result && result.translated) {
-    // Evict oldest entry if cache is full
-    if (cache.size >= CACHE_LIMIT) {
-      cache.delete(cache.keys().next().value);
+  var translationTask = (async function () {
+    var result;
+
+    if (provider === ST.PROVIDERS.BUILT_IN) {
+      result = await translateViaPage(tabId, {
+        text: text,
+        targetLang: lang,
+        sourceLanguage: sourceLanguage,
+        url: payload.url || '',
+      });
+    } else if (provider === ST.PROVIDERS.GOOGLE_TRANSLATE) {
+      result = await translateWithGoogleTranslate({
+        text: text,
+        sourceLanguage: sourceLanguage,
+        targetLang: lang,
+      });
+    } else if (provider === ST.PROVIDERS.OPENROUTER) {
+      result = await translateWithOpenRouter({
+        text: text,
+        sourceLanguage: sourceLanguage,
+        targetLang: lang,
+        baseUrl: providerBaseUrl,
+        model: providerModel,
+        apiKey: settingsBundle.local[ST.STORAGE_LOCAL.PROVIDER_API_KEY] || '',
+      });
+    } else if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
+      result = await translateWithOpenAICompatible({
+        text: text,
+        sourceLanguage: sourceLanguage,
+        targetLang: lang,
+        baseUrl: providerBaseUrl,
+        model: providerModel,
+        apiKey: settingsBundle.local[ST.STORAGE_LOCAL.PROVIDER_API_KEY] || '',
+      });
+    } else if (provider === ST.PROVIDERS.OLLAMA) {
+      result = await translateWithOllama({
+        text: text,
+        sourceLanguage: sourceLanguage,
+        targetLang: lang,
+        baseUrl: providerBaseUrl,
+        model: providerModel,
+      });
+    } else {
+      throw new Error('Unsupported provider: ' + provider);
     }
-    cache.set(key, result.translated);
-  }
 
-  return Object.assign({ provider: provider }, result);
+    if (result && result.translated) {
+      if (cache.size >= CACHE_LIMIT) {
+        cache.delete(cache.keys().next().value);
+      }
+      cache.set(key, result.translated);
+    }
+
+    return Object.assign({ provider: provider }, result);
+  })();
+
+  inFlightTranslations.set(key, translationTask);
+
+  try {
+    return await translationTask;
+  } finally {
+    inFlightTranslations.delete(key);
+  }
 }
 
 function updateSettings(payload, tabId) {
