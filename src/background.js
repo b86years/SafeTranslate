@@ -138,6 +138,18 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         });
       return true;
 
+    case ST.MESSAGES.CHECK_PROVIDER_STATUS:
+      checkProviderStatus(msg.payload || {})
+        .then(sendResponse)
+        .catch(function (error) {
+          sendResponse({
+            kind: 'error',
+            label: '無法檢查',
+            detail: error && error.message ? error.message : 'Failed to check provider status',
+          });
+        });
+      return true;
+
     // ── Translation request ──
 
     case ST.MESSAGES.TRANSLATE_TEXT:
@@ -526,6 +538,139 @@ async function listOllamaModels(payload) {
   };
 }
 
+async function checkProviderStatus(payload) {
+  var settingsBundle = await loadSettingsBundle();
+  var syncSettings = siteConfig.readSettings(settingsBundle.sync);
+  var provider =
+    payload.provider ||
+    syncSettings.translationProvider ||
+    ST.DEFAULTS.TRANSLATION_PROVIDER;
+
+  if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
+    return await checkOpenAICompatibleStatus({
+      baseUrl: payload.baseUrl || syncSettings.providerBaseUrl || '',
+      model: payload.model || syncSettings.providerModel || '',
+      apiKey: settingsBundle.local[ST.STORAGE_LOCAL.PROVIDER_API_KEY] || '',
+    });
+  }
+
+  if (provider === ST.PROVIDERS.OLLAMA) {
+    return await checkOllamaStatus({
+      baseUrl: payload.baseUrl || syncSettings.providerBaseUrl || '',
+      model: payload.model || syncSettings.providerModel || '',
+    });
+  }
+
+  return {
+    kind: 'warning',
+    label: '請在頁面檢查',
+    detail: 'Chrome 內建 AI 需要在目前分頁中檢查可用性。',
+  };
+}
+
+async function checkOpenAICompatibleStatus(payload) {
+  if (!payload.baseUrl) {
+    return {
+      kind: 'warning',
+      label: '缺少 Base URL',
+      detail: '請先設定 OpenAI 相容 API 的 Base URL。',
+    };
+  }
+  if (!payload.apiKey) {
+    return {
+      kind: 'warning',
+      label: '缺少 API Key',
+      detail: '請先填入 API Key。',
+    };
+  }
+  if (!payload.model) {
+    return {
+      kind: 'warning',
+      label: '缺少 Model',
+      detail: '請先設定要使用的模型名稱。',
+    };
+  }
+
+  var endpoint = normalizeOpenAIModelsUrl(payload.baseUrl);
+  var data = await fetchJson(endpoint, {
+    Authorization: 'Bearer ' + payload.apiKey,
+  });
+  var models = data && Array.isArray(data.data) ? data.data : [];
+  var matched = false;
+
+  for (var i = 0; i < models.length; i++) {
+    if (models[i] && models[i].id === payload.model) {
+      matched = true;
+      break;
+    }
+  }
+
+  if (matched) {
+    return {
+      kind: 'available',
+      label: '可用',
+      detail: '已連線到 API，且可使用模型 ' + payload.model + '。',
+    };
+  }
+
+  if (models.length) {
+    return {
+      kind: 'warning',
+      label: '模型未列出',
+      detail: '端點可連線，但 models 清單中找不到 ' + payload.model + '。',
+    };
+  }
+
+  return {
+    kind: 'warning',
+    label: '清單為空',
+    detail: '端點可連線，但沒有回傳可用模型。',
+  };
+}
+
+async function checkOllamaStatus(payload) {
+  if (!payload.model) {
+    return {
+      kind: 'warning',
+      label: '尚未選擇模型',
+      detail: '請先選擇要使用的 Ollama 模型。',
+    };
+  }
+
+  var data = await listOllamaModels({ baseUrl: payload.baseUrl });
+  var models = data && Array.isArray(data.models) ? data.models : [];
+  var matched = false;
+
+  for (var i = 0; i < models.length; i++) {
+    if (models[i] && models[i].name === payload.model) {
+      matched = true;
+      break;
+    }
+  }
+
+  if (matched) {
+    return {
+      kind: 'available',
+      label: '可用',
+      detail: '已連線到 Ollama，且本機已安裝模型 ' + payload.model + '。',
+    };
+  }
+
+  if (models.length) {
+    return {
+      kind: 'warning',
+      label: '模型未安裝',
+      detail: 'Ollama 可連線，但目前清單中沒有 ' + payload.model + '。',
+    };
+  }
+
+  return {
+    kind: 'warning',
+    label: '沒有模型',
+    detail: 'Ollama 可連線，但目前沒有任何本機模型。',
+  };
+}
+
 async function postJson(url, body, headers) {
   var controller = new AbortController();
   var timeoutId = setTimeout(function () {
@@ -584,6 +729,13 @@ function normalizeOpenAIBaseUrl(baseUrl) {
   return String(baseUrl || '')
     .replace(/\/+$/, '')
     .replace(/\/chat\/completions$/, '') + '/chat/completions';
+}
+
+function normalizeOpenAIModelsUrl(baseUrl) {
+  return String(baseUrl || '')
+    .replace(/\/+$/, '')
+    .replace(/\/chat\/completions$/, '')
+    .replace(/\/models$/, '') + '/models';
 }
 
 function normalizeOllamaBaseUrl(baseUrl) {

@@ -32,6 +32,7 @@
   var $providerApiKeyInput = document.getElementById('providerApiKeyInput');
   var $autoTranslateToggle = document.getElementById('autoTranslateToggle');
   var $builtInStatusCard = document.getElementById('builtInStatusCard');
+  var $providerStatusTitle = document.getElementById('providerStatusTitle');
   var $builtInStatusLabel = document.getElementById('builtInStatusLabel');
   var $builtInStatusDetail = document.getElementById('builtInStatusDetail');
   var $builtInCheckButton = document.getElementById('builtInCheckButton');
@@ -67,7 +68,12 @@
         if (state) {
           renderStatus(state);
           renderDiagnostics(state);
-          renderBuiltInStatus(state.builtInAiStatus || null);
+          if (
+            currentSettings &&
+            currentSettings.translationProvider === ST.PROVIDERS.BUILT_IN
+          ) {
+            renderProviderStatus(state.builtInAiStatus || null);
+          }
         }
       }
     );
@@ -90,7 +96,7 @@
       $autoTranslateToggle.checked = s.autoTranslatePage !== false;
       renderProviderFields();
       renderSiteMode();
-      renderBuiltInStatus(null);
+      renderProviderStatus(null);
     }
   );
 
@@ -148,7 +154,7 @@
   });
 
   $builtInCheckButton.addEventListener('click', function () {
-    checkBuiltInStatus();
+    checkSelectedProviderStatus();
   });
 
   $siteModeSelect.addEventListener('change', function () {
@@ -217,7 +223,7 @@
       partial.targetLanguage !== undefined ||
       partial.translationProvider !== undefined
     ) {
-      renderBuiltInStatus(null);
+      renderProviderStatus(null);
     }
   }
 
@@ -284,9 +290,10 @@
     $providerBaseGroup.hidden = !showBaseUrl;
     $providerModelGroup.hidden = !showModel;
     $providerApiKeyGroup.hidden = !showApiKey;
-    $builtInStatusCard.hidden = provider !== ST.PROVIDERS.BUILT_IN;
+    $builtInStatusCard.hidden = false;
     $providerModelSelect.hidden = provider !== ST.PROVIDERS.OLLAMA;
     $providerModelInput.hidden = provider === ST.PROVIDERS.OLLAMA;
+    $providerStatusTitle.textContent = getProviderStatusTitle(provider);
 
     if (provider === ST.PROVIDERS.BUILT_IN) {
       $providerHint.textContent = '優先使用本機 Translator API，在支援裝置上可離線運作。';
@@ -309,6 +316,16 @@
         syncOllamaModelSelection(currentSettings.providerModel || '');
       }
     }
+  }
+
+  function getProviderStatusTitle(provider) {
+    if (provider === ST.PROVIDERS.BUILT_IN) {
+      return 'Chrome 內建 AI 狀態';
+    }
+    if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
+      return 'OpenAI 相容 API 狀態';
+    }
+    return 'Ollama 狀態';
   }
 
   function loadOllamaModels(forceReload) {
@@ -414,12 +431,11 @@
     return value;
   }
 
-  function renderBuiltInStatus(status) {
-    var next = status || {
-      kind: 'idle',
-      label: '點擊檢查',
-      detail: '尚未檢查 Chrome 內建 AI。',
-    };
+  function renderProviderStatus(status) {
+    var provider = currentSettings
+      ? currentSettings.translationProvider || ST.DEFAULTS.TRANSLATION_PROVIDER
+      : ST.DEFAULTS.TRANSLATION_PROVIDER;
+    var next = status || createIdleProviderStatus(provider);
 
     $builtInStatusLabel.className = 'status-pill ' + next.kind;
     $builtInStatusLabel.textContent = next.label;
@@ -428,28 +444,65 @@
     $builtInCheckButton.textContent = '點擊檢查';
   }
 
-  function checkBuiltInStatus() {
-    if (!activeTab || !currentSettings) {
-      renderBuiltInStatus({
+  function createIdleProviderStatus(provider) {
+    if (provider === ST.PROVIDERS.BUILT_IN) {
+      return {
+        kind: 'idle',
+        label: '點擊檢查',
+        detail: '尚未檢查目前選擇的 Chrome 內建 AI。',
+      };
+    }
+
+    if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
+      return {
+        kind: 'idle',
+        label: '點擊檢查',
+        detail: '尚未檢查目前選擇的 OpenAI 相容 API 與模型。',
+      };
+    }
+
+    return {
+      kind: 'idle',
+      label: '點擊檢查',
+      detail: '尚未檢查目前選擇的 Ollama 服務與模型。',
+    };
+  }
+
+  function checkSelectedProviderStatus() {
+    if (!currentSettings) {
+      renderProviderStatus({
         kind: 'error',
         label: '無法檢查',
-        detail: '目前沒有可檢查的活動分頁。',
+        detail: '設定尚未載入完成。',
       });
       return;
     }
+
+    var provider = currentSettings.translationProvider || ST.DEFAULTS.TRANSLATION_PROVIDER;
 
     $builtInCheckButton.disabled = true;
     $builtInCheckButton.textContent = '檢查中...';
     $builtInStatusLabel.className = 'status-pill idle';
     $builtInStatusLabel.textContent = '檢查中';
-    $builtInStatusDetail.textContent = '正在檢查目前分頁的 Chrome 內建 AI 可用性。';
+    $builtInStatusDetail.textContent = getCheckingStatusDetail(provider);
 
-    chrome.tabs.sendMessage(
-      activeTab.id,
-      { type: ST.MESSAGES.CHECK_BUILT_IN_AI_STATUS },
+    if (provider === ST.PROVIDERS.BUILT_IN) {
+      checkBuiltInProviderStatus();
+      return;
+    }
+
+    chrome.runtime.sendMessage(
+      {
+        type: ST.MESSAGES.CHECK_PROVIDER_STATUS,
+        payload: {
+          provider: provider,
+          baseUrl: currentSettings.providerBaseUrl || '',
+          model: currentSettings.providerModel || '',
+        },
+      },
       function (response) {
         if (chrome.runtime.lastError) {
-          renderBuiltInStatus({
+          renderProviderStatus({
             kind: 'error',
             label: '無法檢查',
             detail: chrome.runtime.lastError.message,
@@ -457,9 +510,47 @@
           return;
         }
 
-        renderBuiltInStatus(response || null);
+        renderProviderStatus(response || null);
       }
     );
+  }
+
+  function checkBuiltInProviderStatus() {
+    if (!activeTab) {
+      renderProviderStatus({
+        kind: 'error',
+        label: '無法檢查',
+        detail: '目前沒有可檢查的活動分頁。',
+      });
+      return;
+    }
+
+    chrome.tabs.sendMessage(
+      activeTab.id,
+      { type: ST.MESSAGES.CHECK_BUILT_IN_AI_STATUS },
+      function (response) {
+        if (chrome.runtime.lastError) {
+          renderProviderStatus({
+            kind: 'error',
+            label: '無法檢查',
+            detail: chrome.runtime.lastError.message,
+          });
+          return;
+        }
+
+        renderProviderStatus(response || null);
+      }
+    );
+  }
+
+  function getCheckingStatusDetail(provider) {
+    if (provider === ST.PROVIDERS.BUILT_IN) {
+      return '正在檢查目前分頁的 Chrome 內建 AI 可用性。';
+    }
+    if (provider === ST.PROVIDERS.OPENAI_COMPATIBLE) {
+      return '正在檢查目前 OpenAI 相容 API 與模型是否可用。';
+    }
+    return '正在檢查目前 Ollama 服務與模型是否可用。';
   }
 
   function updateSiteOverride(siteKey, patch) {
